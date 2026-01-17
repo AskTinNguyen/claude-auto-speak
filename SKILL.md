@@ -126,13 +126,33 @@ Config file: `~/.claude-auto-speak/config.json`
 ```json
 {
   "enabled": true,
+  "ttsEngine": "macos",
   "voice": "Samantha",
   "rate": 175,
+  "piperPath": null,
+  "piperVoice": null,
   "ollamaUrl": "http://localhost:11434",
   "ollamaModel": "qwen2.5:1.5b",
   "useLLM": true,
   "fallbackToRegex": true
 }
+```
+
+### TTS Engines
+
+**macOS (default):** Uses built-in `say` command. Zero setup required.
+
+**Piper (optional):** High-quality neural TTS. Cross-platform support.
+
+```bash
+# Install Piper
+~/.claude-auto-speak/setup/piper-setup.sh
+
+# Switch to Piper
+auto-speak config tts piper
+
+# Switch back to macOS
+auto-speak config tts macos
 ```
 
 ### Available Voices

@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 /**
- * speak - macOS TTS wrapper for Claude Auto-Speak
- * Speaks text using the macOS say command
+ * speak - TTS wrapper for Claude Auto-Speak
+ * Supports macOS say command and Piper neural TTS
  *
  * Usage:
  *   speak "Hello world"
  *   echo "Hello world" | speak
  *   speak --voice Samantha --rate 180 "Hello world"
+ *   speak --engine piper "Hello world"
  */
 
-import { spawn } from "child_process";
-import { createInterface } from "readline";
+import { spawn, execSync } from "child_process";
+import { existsSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { loadConfig } from "../lib/config.mjs";
 
 // Parse command line arguments
@@ -19,6 +22,7 @@ function parseArgs(args) {
     text: [],
     voice: null,
     rate: null,
+    engine: null,
     help: false,
   };
 
@@ -29,6 +33,8 @@ function parseArgs(args) {
       result.voice = args[++i];
     } else if (arg === "--rate" || arg === "-r") {
       result.rate = args[++i];
+    } else if (arg === "--engine" || arg === "-e") {
+      result.engine = args[++i];
     } else if (arg === "--help" || arg === "-h") {
       result.help = true;
     } else if (!arg.startsWith("-")) {
@@ -42,7 +48,7 @@ function parseArgs(args) {
 // Show help
 function showHelp() {
   console.log(`
-speak - macOS TTS wrapper for Claude Auto-Speak
+speak - TTS wrapper for Claude Auto-Speak
 
 Usage:
   speak "Hello world"
@@ -50,21 +56,27 @@ Usage:
   speak --voice Samantha --rate 180 "Hello world"
 
 Options:
-  --voice, -v <name>    Voice to use (default: Samantha)
+  --engine, -e <name>   TTS engine: macos or piper (default: from config)
+  --voice, -v <name>    Voice to use (default: Samantha for macOS)
   --rate, -r <speed>    Speech rate in words per minute (default: 175)
   --help, -h            Show this help message
 
-Available voices (run 'say -v ?' to see all):
+macOS Voices (run 'say -v ?' to see all):
   Samantha    - US English female
   Alex        - US English male
   Victoria    - US English female
   Karen       - Australian English female
   Daniel      - British English male
 
+Piper:
+  Install with: ~/.claude-auto-speak/setup/piper-setup.sh
+  Higher quality neural voices
+
 Examples:
   speak "Build completed successfully"
   echo "All tests passed" | speak
   speak -v Alex -r 200 "Hello world"
+  speak -e piper "High quality voice"
 `);
 }
 
@@ -85,7 +97,7 @@ async function readStdin() {
 }
 
 // Speak text using macOS say command
-function speakText(text, voice, rate) {
+function speakWithMacOS(text, voice, rate) {
   return new Promise((resolve, reject) => {
     const args = [];
 
@@ -108,21 +120,66 @@ function speakText(text, voice, rate) {
     });
 
     child.on("error", (err) => {
-      console.error(`TTS error: ${err.message}`);
+      console.error(`macOS TTS error: ${err.message}`);
       reject(err);
     });
   });
 }
 
+// Speak text using Piper TTS
+function speakWithPiper(text, config) {
+  return new Promise((resolve, reject) => {
+    const piperPath = config.piperPath;
+    const voicePath = config.piperVoice;
+
+    if (!piperPath || !existsSync(piperPath)) {
+      console.error("Error: Piper not installed");
+      console.error("Install with: ~/.claude-auto-speak/setup/piper-setup.sh");
+      reject(new Error("Piper not installed"));
+      return;
+    }
+
+    if (!voicePath || !existsSync(voicePath)) {
+      console.error("Error: Piper voice model not found");
+      console.error("Install with: ~/.claude-auto-speak/setup/piper-setup.sh");
+      reject(new Error("Piper voice not found"));
+      return;
+    }
+
+    // Generate temp wav file
+    const tempFile = join(tmpdir(), `speak-${Date.now()}.wav`);
+
+    try {
+      // Run piper to generate audio
+      execSync(`echo "${text.replace(/"/g, '\\"')}" | "${piperPath}" --model "${voicePath}" --output_file "${tempFile}"`, {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      // Play the audio
+      if (process.platform === "darwin") {
+        execSync(`afplay "${tempFile}"`, { stdio: "inherit" });
+      } else {
+        execSync(`aplay "${tempFile}"`, { stdio: "inherit" });
+      }
+
+      // Clean up
+      if (existsSync(tempFile)) {
+        unlinkSync(tempFile);
+      }
+
+      resolve(0);
+    } catch (err) {
+      if (existsSync(tempFile)) {
+        unlinkSync(tempFile);
+      }
+      console.error(`Piper TTS error: ${err.message}`);
+      reject(err);
+    }
+  });
+}
+
 // Main
 async function main() {
-  // Check platform
-  if (process.platform !== "darwin") {
-    console.error("Error: speak command is only available on macOS");
-    console.error("Install Piper TTS for cross-platform support");
-    process.exit(1);
-  }
-
   // Parse args (skip node and script path)
   const args = parseArgs(process.argv.slice(2));
 
@@ -146,14 +203,43 @@ async function main() {
 
   // Load config for defaults
   const config = loadConfig();
-
-  const voice = args.voice || config.voice || "Samantha";
-  const rate = args.rate || config.rate || "175";
+  const engine = args.engine || config.ttsEngine || "macos";
 
   try {
-    const code = await speakText(text, voice, String(rate));
+    let code = 0;
+
+    if (engine === "piper") {
+      code = await speakWithPiper(text, config);
+    } else if (engine === "macos") {
+      if (process.platform !== "darwin") {
+        console.error("Error: macOS TTS only available on macOS");
+        console.error("Use --engine piper for cross-platform support");
+        process.exit(1);
+      }
+
+      const voice = args.voice || config.voice || "Samantha";
+      const rate = args.rate || config.rate || "175";
+      code = await speakWithMacOS(text, voice, String(rate));
+    } else {
+      console.error(`Error: Unknown TTS engine: ${engine}`);
+      console.error("Available engines: macos, piper");
+      process.exit(1);
+    }
+
     process.exit(code);
   } catch (err) {
+    // Try fallback to macOS if Piper fails
+    if (engine === "piper" && process.platform === "darwin") {
+      console.error("Piper failed, falling back to macOS say...");
+      try {
+        const voice = config.voice || "Samantha";
+        const rate = config.rate || "175";
+        const code = await speakWithMacOS(text, voice, String(rate));
+        process.exit(code);
+      } catch (fallbackErr) {
+        process.exit(1);
+      }
+    }
     process.exit(1);
   }
 }

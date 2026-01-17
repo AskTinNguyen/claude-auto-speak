@@ -51,14 +51,20 @@ get_config() {
   fi
 }
 
-# Speak text using macOS say command
-speak() {
+# Speak text using the speak command (handles TTS engine selection)
+speak_text() {
   local text="$1"
-  local voice=$(get_config "voice" "Samantha")
-  local rate=$(get_config "rate" "175")
+  local speak_cmd="${INSTALL_DIR}/bin/speak"
 
-  # Use macOS say command (non-blocking)
-  say -v "$voice" -r "$rate" "$text" &
+  if [[ -f "$speak_cmd" ]]; then
+    # Use the speak command which handles engine selection
+    echo "$text" | node "$speak_cmd" &
+  else
+    # Fallback to macOS say if speak command not found
+    local voice=$(get_config "voice" "Samantha")
+    local rate=$(get_config "rate" "175")
+    say -v "$voice" -r "$rate" "$text" &
+  fi
 }
 
 # Main hook logic
@@ -121,7 +127,7 @@ main() {
   log "Summary preview: ${summary:0:100}..."
 
   # Speak the summary (non-blocking)
-  speak "$summary"
+  speak_text "$summary"
   local speak_pid=$!
 
   log "TTS started (PID: $speak_pid)"

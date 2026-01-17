@@ -53,6 +53,7 @@ ${colors.bold("Commands:")}
 
 ${colors.bold("Config Options:")}
   auto-speak config                     Show current config
+  auto-speak config tts <macos|piper>   Set TTS engine (default: macos)
   auto-speak config voice <name>        Set voice (e.g., Samantha, Alex)
   auto-speak config rate <speed>        Set speech rate (default: 175)
   auto-speak config llm <on|off>        Enable/disable LLM summarization
@@ -61,7 +62,8 @@ ${colors.bold("Config Options:")}
 ${colors.bold("Examples:")}
   auto-speak on                         Enable auto-speak
   auto-speak off                        Disable auto-speak
-  auto-speak config voice Alex          Use Alex voice
+  auto-speak config tts piper           Use Piper neural TTS
+  auto-speak config voice Alex          Use Alex voice (macOS)
   auto-speak test                       Test current configuration
 `);
 }
@@ -87,12 +89,19 @@ function cmdStatus() {
   const config = loadConfig();
   const enabled = config.enabled === true;
 
+  const ttsEngine = config.ttsEngine || "macos";
+
   console.log(colors.bold("\nClaude Auto-Speak Status\n"));
   console.log(
     `  Status:      ${enabled ? colors.green("enabled") : colors.dim("disabled")}`
   );
-  console.log(`  Voice:       ${config.voice || "Samantha"}`);
-  console.log(`  Rate:        ${config.rate || 175} wpm`);
+  console.log(`  TTS Engine:  ${ttsEngine === "piper" ? colors.cyan("piper") : "macos"}`);
+  if (ttsEngine === "macos") {
+    console.log(`  Voice:       ${config.voice || "Samantha"}`);
+    console.log(`  Rate:        ${config.rate || 175} wpm`);
+  } else if (ttsEngine === "piper") {
+    console.log(`  Piper Voice: ${config.piperVoice || colors.dim("not configured")}`);
+  }
   console.log(
     `  LLM:         ${config.useLLM !== false ? colors.green("on") : colors.dim("off")}`
   );
@@ -167,6 +176,21 @@ function cmdConfig(args) {
   }
 
   switch (key) {
+    case "tts":
+      if (value !== "macos" && value !== "piper") {
+        console.error(colors.red(`Invalid TTS engine: ${value}`));
+        console.log(colors.dim("Valid engines: macos, piper"));
+        return;
+      }
+      if (value === "piper" && !config.piperPath) {
+        console.log(colors.yellow("Note: Piper not configured yet"));
+        console.log(colors.dim("Run: ~/.claude-auto-speak/setup/piper-setup.sh"));
+      }
+      config.ttsEngine = value;
+      saveConfig(config);
+      console.log(colors.green(`✓ TTS engine set to ${value}`));
+      break;
+
     case "voice":
       config.voice = value;
       saveConfig(config);
@@ -201,22 +225,30 @@ function cmdConfig(args) {
 
     default:
       console.error(colors.red(`Unknown config key: ${key}`));
-      console.log(colors.dim("Valid keys: voice, rate, llm, ollama-url, model"));
+      console.log(colors.dim("Valid keys: tts, voice, rate, llm, ollama-url, model"));
   }
 }
 
 // Test TTS
 function cmdTest() {
   const config = loadConfig();
+  const ttsEngine = config.ttsEngine || "macos";
   const voice = config.voice || "Samantha";
   const rate = config.rate || 175;
 
-  console.log(colors.dim(`Testing TTS with voice: ${voice}, rate: ${rate}`));
+  console.log(colors.dim(`Testing TTS engine: ${ttsEngine}`));
+  if (ttsEngine === "macos") {
+    console.log(colors.dim(`  Voice: ${voice}, Rate: ${rate} wpm`));
+  } else if (ttsEngine === "piper") {
+    console.log(colors.dim(`  Voice: ${config.piperVoice || "default"}`));
+  }
 
   const testMessage =
     "Auto-speak is working. Claude Code responses will be spoken automatically.";
 
-  const child = spawn("say", ["-v", voice, "-r", String(rate), testMessage], {
+  // Use the speak command which handles TTS engine selection
+  const speakCmd = `${INSTALL_DIR}/bin/speak`;
+  const child = spawn("node", [speakCmd, testMessage], {
     stdio: ["ignore", "inherit", "inherit"],
   });
 
