@@ -1,0 +1,42 @@
+{
+  "name": "claude-auto-speak",
+  "version": "1.0.0",
+  "description": "Automatic text-to-speech for Claude Code responses",
+  "type": "module",
+  "main": "lib/summarize.mjs",
+  "bin": {
+    "auto-speak": "./bin/auto-speak",
+    "speak": "./bin/speak"
+  },
+  "scripts": {
+    "test": "echo \"No tests yet\"",
+    "install-local": "./install.sh",
+    "uninstall": "./uninstall.sh"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "tts",
+    "text-to-speech",
+    "voice",
+    "macos",
+    "ollama",
+    "qwen"
+  ],
+  "author": "AskTinNguyen",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AskTinNguyen/claude-auto-speak.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AskTinNguyen/claude-auto-speak/issues"
+  },
+  "homepage": "https://github.com/AskTinNguyen/claude-auto-speak#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin"
+  ]
+}

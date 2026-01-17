@@ -1,0 +1,299 @@
+#!/usr/bin/env node
+/**
+ * auto-speak - CLI for Claude Auto-Speak
+ *
+ * Commands:
+ *   auto-speak on       Enable auto-speak
+ *   auto-speak off      Disable auto-speak
+ *   auto-speak status   Show current status
+ *   auto-speak config   Show/set configuration
+ *   auto-speak test     Test TTS with a sample message
+ *   auto-speak logs     Show recent log entries
+ */
+
+import { spawn } from "child_process";
+import { readFileSync, existsSync } from "fs";
+import {
+  loadConfig,
+  saveConfig,
+  enable,
+  disable,
+  isEnabled,
+  INSTALL_DIR,
+  CONFIG_FILE,
+  LOG_FILE,
+} from "../lib/config.mjs";
+
+// Colors for terminal output
+const colors = {
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  yellow: (s) => `\x1b[33m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+};
+
+// Show help
+function showHelp() {
+  console.log(`
+${colors.bold("auto-speak")} - Claude Code Auto-Speak CLI
+
+${colors.bold("Usage:")}
+  auto-speak <command> [options]
+
+${colors.bold("Commands:")}
+  ${colors.cyan("on")}        Enable auto-speak
+  ${colors.cyan("off")}       Disable auto-speak
+  ${colors.cyan("status")}    Show current status
+  ${colors.cyan("config")}    Show/set configuration
+  ${colors.cyan("test")}      Test TTS with a sample message
+  ${colors.cyan("logs")}      Show recent log entries
+  ${colors.cyan("help")}      Show this help message
+
+${colors.bold("Config Options:")}
+  auto-speak config                     Show current config
+  auto-speak config voice <name>        Set voice (e.g., Samantha, Alex)
+  auto-speak config rate <speed>        Set speech rate (default: 175)
+  auto-speak config llm <on|off>        Enable/disable LLM summarization
+  auto-speak config ollama-url <url>    Set Ollama URL
+
+${colors.bold("Examples:")}
+  auto-speak on                         Enable auto-speak
+  auto-speak off                        Disable auto-speak
+  auto-speak config voice Alex          Use Alex voice
+  auto-speak test                       Test current configuration
+`);
+}
+
+// Enable auto-speak
+function cmdOn() {
+  enable();
+  console.log(colors.green("✓ Auto-speak enabled"));
+  console.log(
+    colors.dim("  All Claude Code responses will be spoken automatically")
+  );
+  console.log(colors.dim(`  Run ${colors.cyan("auto-speak off")} to disable`));
+}
+
+// Disable auto-speak
+function cmdOff() {
+  disable();
+  console.log(colors.green("✓ Auto-speak disabled"));
+}
+
+// Show status
+function cmdStatus() {
+  const config = loadConfig();
+  const enabled = config.enabled === true;
+
+  console.log(colors.bold("\nClaude Auto-Speak Status\n"));
+  console.log(
+    `  Status:      ${enabled ? colors.green("enabled") : colors.dim("disabled")}`
+  );
+  console.log(`  Voice:       ${config.voice || "Samantha"}`);
+  console.log(`  Rate:        ${config.rate || 175} wpm`);
+  console.log(
+    `  LLM:         ${config.useLLM !== false ? colors.green("on") : colors.dim("off")}`
+  );
+  console.log(`  Ollama URL:  ${config.ollamaUrl || "http://localhost:11434"}`);
+  console.log(`  Model:       ${config.ollamaModel || "qwen2.5:1.5b"}`);
+  console.log("");
+  console.log(colors.dim(`  Config: ${CONFIG_FILE}`));
+  console.log(colors.dim(`  Logs:   ${LOG_FILE}`));
+  console.log("");
+
+  // Check Ollama availability
+  if (config.useLLM !== false) {
+    checkOllama(config);
+  }
+}
+
+// Check if Ollama is available
+async function checkOllama(config) {
+  const ollamaUrl = config.ollamaUrl || "http://localhost:11434";
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+    const res = await fetch(`${ollamaUrl}/api/tags`, {
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      const models = data.models || [];
+      const hasQwen = models.some((m) =>
+        m.name.toLowerCase().includes("qwen2.5")
+      );
+
+      if (hasQwen) {
+        console.log(colors.green("  ✓ Ollama available with Qwen model"));
+      } else {
+        console.log(colors.yellow("  ⚠ Ollama available but Qwen model not found"));
+        console.log(colors.dim("    Run: ollama pull qwen2.5:1.5b"));
+      }
+    } else {
+      console.log(colors.yellow("  ⚠ Ollama not responding"));
+    }
+  } catch (err) {
+    console.log(colors.yellow("  ⚠ Ollama not available (will use regex fallback)"));
+    console.log(colors.dim("    For smart summarization, install Ollama:"));
+    console.log(colors.dim("    curl -fsSL https://ollama.com/install.sh | sh"));
+    console.log(colors.dim("    ollama pull qwen2.5:1.5b"));
+  }
+}
+
+// Show/set config
+function cmdConfig(args) {
+  const config = loadConfig();
+
+  if (args.length === 0) {
+    // Show current config
+    console.log(colors.bold("\nCurrent Configuration:\n"));
+    console.log(JSON.stringify(config, null, 2));
+    return;
+  }
+
+  const key = args[0];
+  const value = args[1];
+
+  if (!value) {
+    console.error(colors.red(`Error: Missing value for ${key}`));
+    return;
+  }
+
+  switch (key) {
+    case "voice":
+      config.voice = value;
+      saveConfig(config);
+      console.log(colors.green(`✓ Voice set to ${value}`));
+      break;
+
+    case "rate":
+      config.rate = parseInt(value, 10);
+      saveConfig(config);
+      console.log(colors.green(`✓ Rate set to ${value} wpm`));
+      break;
+
+    case "llm":
+      config.useLLM = value === "on" || value === "true";
+      saveConfig(config);
+      console.log(
+        colors.green(`✓ LLM summarization ${config.useLLM ? "enabled" : "disabled"}`)
+      );
+      break;
+
+    case "ollama-url":
+      config.ollamaUrl = value;
+      saveConfig(config);
+      console.log(colors.green(`✓ Ollama URL set to ${value}`));
+      break;
+
+    case "model":
+      config.ollamaModel = value;
+      saveConfig(config);
+      console.log(colors.green(`✓ Ollama model set to ${value}`));
+      break;
+
+    default:
+      console.error(colors.red(`Unknown config key: ${key}`));
+      console.log(colors.dim("Valid keys: voice, rate, llm, ollama-url, model"));
+  }
+}
+
+// Test TTS
+function cmdTest() {
+  const config = loadConfig();
+  const voice = config.voice || "Samantha";
+  const rate = config.rate || 175;
+
+  console.log(colors.dim(`Testing TTS with voice: ${voice}, rate: ${rate}`));
+
+  const testMessage =
+    "Auto-speak is working. Claude Code responses will be spoken automatically.";
+
+  const child = spawn("say", ["-v", voice, "-r", String(rate), testMessage], {
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+
+  child.on("exit", (code) => {
+    if (code === 0) {
+      console.log(colors.green("✓ TTS test completed"));
+    } else {
+      console.log(colors.red("✗ TTS test failed"));
+    }
+  });
+
+  child.on("error", (err) => {
+    console.error(colors.red(`TTS error: ${err.message}`));
+  });
+}
+
+// Show logs
+function cmdLogs() {
+  if (!existsSync(LOG_FILE)) {
+    console.log(colors.dim("No logs found"));
+    return;
+  }
+
+  try {
+    const logs = readFileSync(LOG_FILE, "utf-8");
+    const lines = logs.trim().split("\n");
+    const recent = lines.slice(-20); // Last 20 lines
+
+    console.log(colors.bold("\nRecent Auto-Speak Logs:\n"));
+    recent.forEach((line) => console.log(colors.dim(line)));
+    console.log("");
+  } catch (err) {
+    console.error(colors.red(`Error reading logs: ${err.message}`));
+  }
+}
+
+// Main
+function main() {
+  const args = process.argv.slice(2);
+  const command = args[0] || "help";
+
+  switch (command) {
+    case "on":
+      cmdOn();
+      break;
+
+    case "off":
+      cmdOff();
+      break;
+
+    case "status":
+      cmdStatus();
+      break;
+
+    case "config":
+      cmdConfig(args.slice(1));
+      break;
+
+    case "test":
+      cmdTest();
+      break;
+
+    case "logs":
+      cmdLogs();
+      break;
+
+    case "help":
+    case "--help":
+    case "-h":
+      showHelp();
+      break;
+
+    default:
+      console.error(colors.red(`Unknown command: ${command}`));
+      console.log(colors.dim(`Run ${colors.cyan("auto-speak help")} for usage`));
+      process.exit(1);
+  }
+}
+
+main();

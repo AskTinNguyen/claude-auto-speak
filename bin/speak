@@ -1,0 +1,161 @@
+#!/usr/bin/env node
+/**
+ * speak - macOS TTS wrapper for Claude Auto-Speak
+ * Speaks text using the macOS say command
+ *
+ * Usage:
+ *   speak "Hello world"
+ *   echo "Hello world" | speak
+ *   speak --voice Samantha --rate 180 "Hello world"
+ */
+
+import { spawn } from "child_process";
+import { createInterface } from "readline";
+import { loadConfig } from "../lib/config.mjs";
+
+// Parse command line arguments
+function parseArgs(args) {
+  const result = {
+    text: [],
+    voice: null,
+    rate: null,
+    help: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--voice" || arg === "-v") {
+      result.voice = args[++i];
+    } else if (arg === "--rate" || arg === "-r") {
+      result.rate = args[++i];
+    } else if (arg === "--help" || arg === "-h") {
+      result.help = true;
+    } else if (!arg.startsWith("-")) {
+      result.text.push(arg);
+    }
+  }
+
+  return result;
+}
+
+// Show help
+function showHelp() {
+  console.log(`
+speak - macOS TTS wrapper for Claude Auto-Speak
+
+Usage:
+  speak "Hello world"
+  echo "Hello world" | speak
+  speak --voice Samantha --rate 180 "Hello world"
+
+Options:
+  --voice, -v <name>    Voice to use (default: Samantha)
+  --rate, -r <speed>    Speech rate in words per minute (default: 175)
+  --help, -h            Show this help message
+
+Available voices (run 'say -v ?' to see all):
+  Samantha    - US English female
+  Alex        - US English male
+  Victoria    - US English female
+  Karen       - Australian English female
+  Daniel      - British English male
+
+Examples:
+  speak "Build completed successfully"
+  echo "All tests passed" | speak
+  speak -v Alex -r 200 "Hello world"
+`);
+}
+
+// Read from stdin if no text provided
+async function readStdin() {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) {
+      resolve("");
+      return;
+    }
+
+    const chunks = [];
+    process.stdin.on("data", (chunk) => chunks.push(chunk));
+    process.stdin.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf-8").trim());
+    });
+  });
+}
+
+// Speak text using macOS say command
+function speakText(text, voice, rate) {
+  return new Promise((resolve, reject) => {
+    const args = [];
+
+    if (voice) {
+      args.push("-v", voice);
+    }
+
+    if (rate) {
+      args.push("-r", rate);
+    }
+
+    args.push(text);
+
+    const child = spawn("say", args, {
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+
+    child.on("exit", (code) => {
+      resolve(code ?? 0);
+    });
+
+    child.on("error", (err) => {
+      console.error(`TTS error: ${err.message}`);
+      reject(err);
+    });
+  });
+}
+
+// Main
+async function main() {
+  // Check platform
+  if (process.platform !== "darwin") {
+    console.error("Error: speak command is only available on macOS");
+    console.error("Install Piper TTS for cross-platform support");
+    process.exit(1);
+  }
+
+  // Parse args (skip node and script path)
+  const args = parseArgs(process.argv.slice(2));
+
+  if (args.help) {
+    showHelp();
+    process.exit(0);
+  }
+
+  // Get text from args or stdin
+  let text = args.text.join(" ").trim();
+
+  if (!text) {
+    text = await readStdin();
+  }
+
+  if (!text) {
+    console.error("Error: No text provided to speak");
+    console.error('Usage: speak "text" or echo "text" | speak');
+    process.exit(1);
+  }
+
+  // Load config for defaults
+  const config = loadConfig();
+
+  const voice = args.voice || config.voice || "Samantha";
+  const rate = args.rate || config.rate || "175";
+
+  try {
+    const code = await speakText(text, voice, String(rate));
+    process.exit(code);
+  } catch (err) {
+    process.exit(1);
+  }
+}
+
+main();
