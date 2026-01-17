@@ -9,7 +9,9 @@
 - **Immediate Acknowledgment** - Speaks Claude's first response when you submit a command
 - **Progress Updates** - Speaks "Still working", "Almost there" during long tasks
 - **Final Summary** - Context-aware summary when Claude finishes
+- **Cross-Session Coordination** - Multiple Claude sessions coordinate to prevent audio conflicts
 - **TTS Overlap Prevention** - Cancels existing audio before speaking new text
+- **Skip Session Start** - Avoids spammy voice on new session's first prompt
 - **Smart Summarization** - Uses Qwen LLM to create natural 1-2 sentence summaries
 - **Multiple TTS Engines** - macOS `say` (default) or Piper neural TTS
 - **Voice Selection** - Choose from multiple voices for each engine
@@ -131,9 +133,26 @@ Edit `~/.claude-auto-speak/config.json`:
   "progress": {
     "enabled": true,
     "intervalSeconds": 15
+  },
+  "skipSessionStart": {
+    "enabled": true,
+    "minUserMessages": 1
   }
 }
 ```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `false` | Master on/off switch |
+| `ttsEngine` | `"macos"` | TTS engine: `"macos"` or `"piper"` |
+| `voice` | `"Samantha"` | Voice name for TTS |
+| `rate` | `175` | Speech rate (words per minute) |
+| `useLLM` | `true` | Use Qwen for smart summarization |
+| `acknowledgment.enabled` | `true` | Speak Claude's first response |
+| `progress.enabled` | `true` | Speak periodic progress updates |
+| `progress.intervalSeconds` | `15` | Seconds between progress phrases |
+| `skipSessionStart.enabled` | `true` | Skip voice on first prompt of new session |
+| `skipSessionStart.minUserMessages` | `1` | Threshold for session start detection |
 
 ## Piper TTS Setup
 
@@ -198,12 +217,30 @@ speak --engine piper "Hello world"
 ## How It Works
 
 1. **UserPromptSubmit hook** triggers when you submit a command
-2. **Transcript watcher** monitors for Claude's first text response
-3. **Acknowledgment** is spoken immediately
-4. **Progress timer** speaks updates every 15 seconds
-5. **Stop hook** triggers when Claude finishes
-6. **Context-aware summarizer** creates a natural summary
-7. **TTS manager** ensures no audio overlap
+2. **Session detection** skips voice on first prompt of new session
+3. **Transcript watcher** monitors for Claude's first text response
+4. **Acknowledgment** is spoken immediately
+5. **Progress timer** speaks updates every 15 seconds
+6. **Stop hook** triggers when Claude finishes
+7. **Context-aware summarizer** creates a natural summary
+8. **TTS manager** coordinates across sessions, prevents overlap
+
+### Cross-Session Coordination
+
+When running multiple Claude Code sessions simultaneously:
+
+- Each session gets a unique ID from terminal/parent process
+- Global voice lock prevents audio conflicts between sessions
+- Sessions wait up to 15s for others to finish speaking
+- Each session only manages its own TTS processes
+
+### Skip Session Start
+
+To avoid repetitive/spammy acknowledgments when starting a new Claude session:
+
+- Counts user messages in transcript
+- Skips voice if message count is at or below threshold (default: 1)
+- Configurable via `skipSessionStart` in config.json
 
 ## Troubleshooting
 
@@ -229,6 +266,23 @@ The TTS manager should prevent this automatically. Check logs:
 tail -f ~/.claude-auto-speak/tts-manager.log
 ```
 
+Look for:
+- "Killing orphaned say processes" - cleanup working
+- "Voice lock acquired/released" - cross-session coordination working
+- "Another session is speaking, waiting" - session coordination active
+
+### Multiple sessions conflicting?
+
+Check if cross-session coordination is working:
+
+```bash
+# Check voice lock status
+cat ~/.claude-auto-speak/locks/voice.lock
+
+# Check session-specific PID files
+ls ~/.claude-auto-speak/tts-*.pid
+```
+
 ### Ollama errors?
 
 ```bash
@@ -240,6 +294,39 @@ ollama serve
 
 # Verify Qwen model
 ollama list | grep qwen
+```
+
+## File Structure
+
+```
+~/.claude-auto-speak/
+├── config.json              # Configuration
+├── auto-speak.log           # Stop hook logs
+├── prompt-ack-hook.log      # Acknowledgment hook logs
+├── progress-timer.log       # Progress timer logs
+├── tts-manager.log          # TTS manager logs
+├── session-detect.log       # Session detection logs
+├── tts-{session}.pid        # Session-specific TTS PID
+├── locks/
+│   └── voice.lock           # Global voice lock for cross-session coordination
+├── bin/
+│   ├── auto-speak           # CLI commands
+│   └── speak                # TTS wrapper
+├── lib/
+│   ├── config.mjs           # Config management
+│   ├── output-filter.mjs    # Text filtering
+│   ├── summarize.mjs        # LLM summarization
+│   ├── tts-manager.sh       # TTS overlap prevention + cross-session coordination
+│   ├── session-detect.sh    # Session start detection
+│   ├── transcript-watcher.mjs  # First response detection
+│   └── progress-timer.sh    # Periodic progress updates
+├── hooks/
+│   ├── stop-hook.sh         # Stop hook (final summary)
+│   └── prompt-ack-hook.sh   # UserPromptSubmit hook (acknowledgment)
+└── setup/
+    ├── configure-hooks.mjs  # Hook registration
+    ├── ollama-setup.sh      # Ollama installer
+    └── piper-setup.sh       # Piper TTS installer
 ```
 
 ## Uninstall
