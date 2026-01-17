@@ -6,7 +6,10 @@ Hear Claude's responses spoken aloud automatically. Uses intelligent LLM-based s
 
 ## Features
 
-- **Automatic TTS**: Claude Code responses are spoken automatically
+- **Immediate Acknowledgment**: Speaks Claude's first response when you submit a command
+- **Progress Updates**: Speaks "Still working", "Almost there" during long tasks
+- **Final Summary**: Speaks a context-aware summary when Claude finishes
+- **TTS Overlap Prevention**: Cancels existing TTS before speaking new text
 - **Context-Aware Summarization**: Uses Qwen LLM to create natural 1-2 sentence summaries
 - **Intelligent Filtering**: Removes code blocks, markdown, file paths, and technical noise
 - **Zero Configuration**: Works out of the box with sensible defaults
@@ -52,28 +55,34 @@ Without Ollama, auto-speak uses regex-based text cleanup which still works well 
 ## How It Works
 
 ```
-Claude Code completes response
+User submits command
     ↓
-Stop hook triggers automatically
+UserPromptSubmit hook triggers → starts transcript watcher
     ↓
-Extract transcript & find last response
+Claude responds with first text → speaks immediate acknowledgment
     ↓
-Filter: Remove code blocks, markdown, paths
+Progress timer starts → speaks "Still working" every 15s
     ↓
-Summarize: Qwen LLM creates 1-2 sentence summary
+Claude finishes → Stop hook triggers
     ↓
-Speak: macOS 'say' command (non-blocking)
+Stop timer, cancel existing TTS
+    ↓
+Summarize with Qwen LLM (context-aware)
+    ↓
+Speak final summary (exclusive TTS)
     ↓
 You hear the response!
 ```
 
 ### Example
 
-**You ask:** "How many tests passed?"
+**You ask:** "Run the test suite"
 
-**Claude's response:** *[500 lines of test output]*
-
-**You hear:** "All 47 tests passed"
+**Sequence of audio:**
+1. *Immediately:* "Running the test suite"
+2. *After 15s:* "Still working"
+3. *After 30s:* "Almost there"
+4. *When done:* "All 47 tests passed"
 
 ## Commands
 
@@ -96,6 +105,9 @@ auto-speak config voice Alex
 
 # Change speech rate (words per minute)
 auto-speak config rate 200
+
+# Change TTS engine
+auto-speak config tts piper
 
 # Disable LLM summarization (use regex only)
 auto-speak config llm off
@@ -134,9 +146,26 @@ Config file: `~/.claude-auto-speak/config.json`
   "ollamaUrl": "http://localhost:11434",
   "ollamaModel": "qwen2.5:1.5b",
   "useLLM": true,
-  "fallbackToRegex": true
+  "fallbackToRegex": true,
+  "acknowledgment": {
+    "enabled": true
+  },
+  "progress": {
+    "enabled": true,
+    "intervalSeconds": 15
+  }
 }
 ```
+
+### Feature Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `false` | Master on/off switch |
+| `acknowledgment.enabled` | `true` | Speak Claude's first response |
+| `progress.enabled` | `true` | Speak progress updates during long tasks |
+| `progress.intervalSeconds` | `15` | Seconds between progress phrases |
+| `useLLM` | `true` | Use Qwen for smart summarization |
 
 ### TTS Engines
 
@@ -207,9 +236,9 @@ Or use the included setup script:
    speak "Test message"
    ```
 
-4. **Verify hook is configured:**
+4. **Verify hooks are configured:**
    ```bash
-   cat ~/.claude/settings.local.json | jq '.hooks.Stop'
+   cat ~/.claude/settings.local.json | jq '.hooks'
    ```
 
 ### No sound?
@@ -217,6 +246,18 @@ Or use the included setup script:
 - Check macOS volume and mute status
 - Try a different voice: `auto-speak config voice Alex`
 - Run `say "test"` to verify macOS TTS works
+
+### Progress updates not working?
+
+- Check if progress is enabled: `auto-speak config` and look for `progress.enabled`
+- Progress timer only starts after acknowledgment is spoken
+- Timer is stopped when Claude finishes responding
+
+### TTS audio overlapping?
+
+The TTS manager automatically cancels existing audio before speaking new text. If you still experience overlap:
+- Check logs: `auto-speak logs`
+- The stop hook should show "Canceling existing TTS"
 
 ### Summaries too verbose?
 
@@ -233,21 +274,41 @@ Or use the included setup script:
 
 ```
 ~/.claude-auto-speak/
-├── config.json           # Configuration
-├── auto-speak.log        # Debug logs
+├── config.json              # Configuration
+├── auto-speak.log           # Stop hook logs
+├── prompt-ack-hook.log      # Acknowledgment hook logs
+├── progress-timer.log       # Progress timer logs
+├── tts-manager.log          # TTS manager logs
+├── tts.pid                  # Active TTS process ID
+├── progress-timer.pid       # Active timer process ID
+├── transcript-watcher.pid   # Active watcher process ID
 ├── bin/
-│   ├── auto-speak        # CLI commands
-│   └── speak             # TTS wrapper
+│   ├── auto-speak           # CLI commands
+│   └── speak                # TTS wrapper
 ├── lib/
-│   ├── config.mjs        # Config management
-│   ├── output-filter.mjs # Text filtering
-│   └── summarize.mjs     # LLM summarization
+│   ├── config.mjs           # Config management
+│   ├── output-filter.mjs    # Text filtering
+│   ├── summarize.mjs        # LLM summarization
+│   ├── tts-manager.sh       # TTS overlap prevention
+│   ├── transcript-watcher.mjs  # First response detection
+│   └── progress-timer.sh    # Periodic progress updates
 ├── hooks/
-│   └── stop-hook.sh      # Claude Code hook
+│   ├── stop-hook.sh         # Stop hook (final summary)
+│   └── prompt-ack-hook.sh   # UserPromptSubmit hook (acknowledgment)
 └── setup/
     ├── configure-hooks.mjs  # Hook registration
-    └── ollama-setup.sh      # Ollama installer
+    ├── ollama-setup.sh      # Ollama installer
+    └── piper-setup.sh       # Piper TTS installer
 ```
+
+## Hooks Registered
+
+Auto-speak registers two Claude Code hooks:
+
+| Hook | Script | Purpose |
+|------|--------|---------|
+| `UserPromptSubmit` | `prompt-ack-hook.sh` | Speaks Claude's first response as acknowledgment |
+| `Stop` | `stop-hook.sh` | Speaks final summary when Claude finishes |
 
 ## Uninstall
 
@@ -273,7 +334,7 @@ rm -rf ~/.claude-auto-speak
 - All processing is local (no cloud services required)
 - Ollama runs locally with no external connections
 - Transcript data is read-only (never modified)
-- Logs are stored in `~/.claude-auto-speak/auto-speak.log`
+- Logs are stored in `~/.claude-auto-speak/`
 
 ## Credits
 

@@ -12,6 +12,10 @@ INSTALL_DIR="${HOME}/.claude-auto-speak"
 CONFIG_FILE="${INSTALL_DIR}/config.json"
 LOG_FILE="${INSTALL_DIR}/auto-speak.log"
 SUMMARIZE_SCRIPT="${INSTALL_DIR}/lib/summarize.mjs"
+WATCHER_PID_FILE="${INSTALL_DIR}/transcript-watcher.pid"
+
+# Source TTS manager for exclusive playback
+source "${INSTALL_DIR}/lib/tts-manager.sh" 2>/dev/null || true
 
 # Function to log messages
 log() {
@@ -51,25 +55,36 @@ get_config() {
   fi
 }
 
-# Speak text using the speak command (handles TTS engine selection)
-speak_text() {
-  local text="$1"
-  local speak_cmd="${INSTALL_DIR}/bin/speak"
+# Stop the transcript watcher if running
+stop_transcript_watcher() {
+  if [[ -f "$WATCHER_PID_FILE" ]]; then
+    local pid=$(cat "$WATCHER_PID_FILE" 2>/dev/null)
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      log "Stopping transcript watcher (PID: $pid)"
+      kill "$pid" 2>/dev/null || true
+    fi
+    rm -f "$WATCHER_PID_FILE"
+  fi
 
-  if [[ -f "$speak_cmd" ]]; then
-    # Use the speak command which handles engine selection
-    echo "$text" | node "$speak_cmd" &
-  else
-    # Fallback to macOS say if speak command not found
-    local voice=$(get_config "voice" "Samantha")
-    local rate=$(get_config "rate" "175")
-    say -v "$voice" -r "$rate" "$text" &
+  # Kill any stray watcher processes
+  pkill -f "transcript-watcher.mjs" 2>/dev/null || true
+}
+
+# Stop the progress timer if running
+stop_progress_timer() {
+  local timer_script="${INSTALL_DIR}/lib/progress-timer.sh"
+  if [[ -f "$timer_script" ]]; then
+    "$timer_script" stop 2>/dev/null || true
   fi
 }
 
 # Main hook logic
 main() {
   log "=== Auto-speak hook triggered ==="
+
+  # Stop any running watcher and timer FIRST to prevent overlap
+  stop_transcript_watcher
+  stop_progress_timer
 
   # Check if auto-speak is enabled
   if ! is_auto_speak_enabled; then
@@ -126,11 +141,22 @@ main() {
   log "Summary generated: ${#summary} characters"
   log "Summary preview: ${summary:0:100}..."
 
-  # Speak the summary (non-blocking)
-  speak_text "$summary"
-  local speak_pid=$!
+  # Speak the summary using exclusive TTS (cancels any existing)
+  if type speak_exclusive &>/dev/null; then
+    speak_exclusive "$summary"
+  else
+    # Fallback if TTS manager not loaded
+    local speak_cmd="${INSTALL_DIR}/bin/speak"
+    if [[ -f "$speak_cmd" ]]; then
+      echo "$summary" | node "$speak_cmd" &
+    else
+      local voice=$(get_config "voice" "Samantha")
+      local rate=$(get_config "rate" "175")
+      say -v "$voice" -r "$rate" "$summary" &
+    fi
+  fi
 
-  log "TTS started (PID: $speak_pid)"
+  log "TTS started for final summary"
   log "=== Hook complete ==="
 
   exit 0

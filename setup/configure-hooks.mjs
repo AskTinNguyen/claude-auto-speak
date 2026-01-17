@@ -1,19 +1,24 @@
 #!/usr/bin/env node
 /**
  * Configure Claude Code hooks for auto-speak
- * Automatically adds the stop hook to ~/.claude/settings.local.json
+ * Automatically adds both hooks to ~/.claude/settings.local.json:
+ *   - UserPromptSubmit: Speaks Claude's first response as acknowledgment
+ *   - Stop: Speaks final summary when Claude finishes
  *
  * Usage: node configure-hooks.mjs [--remove]
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
 import { homedir } from "os";
-import { join, dirname } from "path";
+import { join } from "path";
 
 const CLAUDE_DIR = join(homedir(), ".claude");
 const SETTINGS_FILE = join(CLAUDE_DIR, "settings.local.json");
 const INSTALL_DIR = join(homedir(), ".claude-auto-speak");
-const HOOK_SCRIPT = join(INSTALL_DIR, "hooks", "stop-hook.sh");
+
+// Hook scripts
+const STOP_HOOK = join(INSTALL_DIR, "hooks", "stop-hook.sh");
+const PROMPT_ACK_HOOK = join(INSTALL_DIR, "hooks", "prompt-ack-hook.sh");
 
 // Colors
 const colors = {
@@ -61,15 +66,15 @@ function saveSettings(settings) {
 }
 
 /**
- * Check if auto-speak hook is already configured
+ * Check if a specific hook type has our auto-speak hook configured
  */
-function isHookConfigured(settings) {
-  const stopHooks = settings?.hooks?.Stop;
-  if (!Array.isArray(stopHooks)) {
+function isHookConfiguredForType(settings, hookType) {
+  const hooks = settings?.hooks?.[hookType];
+  if (!Array.isArray(hooks)) {
     return false;
   }
 
-  return stopHooks.some((hookGroup) => {
+  return hooks.some((hookGroup) => {
     if (!hookGroup?.hooks) return false;
     return hookGroup.hooks.some(
       (hook) =>
@@ -80,16 +85,21 @@ function isHookConfigured(settings) {
 }
 
 /**
- * Add auto-speak hook to settings
+ * Add a hook to settings for a specific hook type
  */
-function addHook(settings) {
+function addHookForType(settings, hookType, hookScript) {
   // Initialize hooks structure if needed
   if (!settings.hooks) {
     settings.hooks = {};
   }
 
-  if (!settings.hooks.Stop) {
-    settings.hooks.Stop = [];
+  if (!settings.hooks[hookType]) {
+    settings.hooks[hookType] = [];
+  }
+
+  // Check if already configured
+  if (isHookConfiguredForType(settings, hookType)) {
+    return false; // Already configured
   }
 
   // Add our hook
@@ -97,24 +107,24 @@ function addHook(settings) {
     hooks: [
       {
         type: "command",
-        command: HOOK_SCRIPT,
+        command: hookScript,
       },
     ],
   };
 
-  settings.hooks.Stop.push(hookEntry);
-  return settings;
+  settings.hooks[hookType].push(hookEntry);
+  return true; // Added
 }
 
 /**
- * Remove auto-speak hook from settings
+ * Remove auto-speak hooks from a specific hook type
  */
-function removeHook(settings) {
-  if (!settings?.hooks?.Stop) {
+function removeHookForType(settings, hookType) {
+  if (!settings?.hooks?.[hookType]) {
     return settings;
   }
 
-  settings.hooks.Stop = settings.hooks.Stop.filter((hookGroup) => {
+  settings.hooks[hookType] = settings.hooks[hookType].filter((hookGroup) => {
     if (!hookGroup?.hooks) return true;
     return !hookGroup.hooks.some(
       (hook) =>
@@ -124,8 +134,8 @@ function removeHook(settings) {
   });
 
   // Clean up empty arrays
-  if (settings.hooks.Stop.length === 0) {
-    delete settings.hooks.Stop;
+  if (settings.hooks[hookType].length === 0) {
+    delete settings.hooks[hookType];
   }
 
   if (Object.keys(settings.hooks).length === 0) {
@@ -136,56 +146,88 @@ function removeHook(settings) {
 }
 
 /**
- * Install hooks
+ * Install all hooks
  */
 function install() {
   console.log(colors.cyan("\nConfiguring Claude Code hooks for auto-speak...\n"));
 
-  // Check if hook script exists
-  if (!existsSync(HOOK_SCRIPT)) {
-    console.error(colors.red(`Error: Hook script not found: ${HOOK_SCRIPT}`));
-    console.error(colors.dim("Run the installer first: install.sh"));
+  // Check if hook scripts exist
+  const missingScripts = [];
+  if (!existsSync(STOP_HOOK)) {
+    missingScripts.push(STOP_HOOK);
+  }
+  if (!existsSync(PROMPT_ACK_HOOK)) {
+    missingScripts.push(PROMPT_ACK_HOOK);
+  }
+
+  if (missingScripts.length > 0) {
+    console.error(colors.red("Error: Hook scripts not found:"));
+    missingScripts.forEach((s) => console.error(colors.dim(`  ${s}`)));
+    console.error(colors.dim("\nRun the installer first: install.sh"));
     process.exit(1);
   }
 
   // Load current settings
-  const settings = loadSettings();
+  let settings = loadSettings();
+  let addedHooks = [];
 
-  // Check if already configured
-  if (isHookConfigured(settings)) {
-    console.log(colors.green("✓ Auto-speak hook is already configured"));
+  // Add Stop hook (final summary)
+  if (addHookForType(settings, "Stop", STOP_HOOK)) {
+    addedHooks.push("Stop");
+  }
+
+  // Add UserPromptSubmit hook (immediate acknowledgment)
+  if (addHookForType(settings, "UserPromptSubmit", PROMPT_ACK_HOOK)) {
+    addedHooks.push("UserPromptSubmit");
+  }
+
+  if (addedHooks.length === 0) {
+    console.log(colors.green("✓ All auto-speak hooks are already configured"));
     return;
   }
 
-  // Add hook
-  const updated = addHook(settings);
-  saveSettings(updated);
+  // Save settings
+  saveSettings(settings);
 
-  console.log(colors.green("✓ Auto-speak hook added to Claude Code settings"));
+  console.log(colors.green(`✓ Added hooks: ${addedHooks.join(", ")}`));
   console.log(colors.dim(`  Settings file: ${SETTINGS_FILE}`));
   console.log("");
-  console.log(colors.cyan("Auto-speak is now integrated with Claude Code!"));
-  console.log(colors.dim("  Enable with: auto-speak on"));
-  console.log(colors.dim("  Test with: auto-speak test"));
+  console.log(colors.cyan("Auto-speak hooks configured:"));
+  console.log(colors.dim("  • UserPromptSubmit: Speaks Claude's first response"));
+  console.log(colors.dim("  • Stop: Speaks final summary when Claude finishes"));
+  console.log("");
+  console.log(colors.dim("Enable with: auto-speak on"));
+  console.log(colors.dim("Test with: auto-speak test"));
 }
 
 /**
- * Uninstall hooks
+ * Uninstall all hooks
  */
 function uninstall() {
-  console.log(colors.cyan("\nRemoving auto-speak hook from Claude Code...\n"));
+  console.log(colors.cyan("\nRemoving auto-speak hooks from Claude Code...\n"));
 
-  const settings = loadSettings();
+  let settings = loadSettings();
+  let removedHooks = [];
 
-  if (!isHookConfigured(settings)) {
-    console.log(colors.dim("Auto-speak hook was not configured"));
+  // Check what's configured
+  const hadStop = isHookConfiguredForType(settings, "Stop");
+  const hadPrompt = isHookConfiguredForType(settings, "UserPromptSubmit");
+
+  if (!hadStop && !hadPrompt) {
+    console.log(colors.dim("No auto-speak hooks were configured"));
     return;
   }
 
-  const updated = removeHook(settings);
-  saveSettings(updated);
+  // Remove hooks
+  settings = removeHookForType(settings, "Stop");
+  settings = removeHookForType(settings, "UserPromptSubmit");
 
-  console.log(colors.green("✓ Auto-speak hook removed from Claude Code settings"));
+  if (hadStop) removedHooks.push("Stop");
+  if (hadPrompt) removedHooks.push("UserPromptSubmit");
+
+  saveSettings(settings);
+
+  console.log(colors.green(`✓ Removed hooks: ${removedHooks.join(", ")}`));
 }
 
 // Main
