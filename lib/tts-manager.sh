@@ -147,9 +147,25 @@ cancel_existing_tts() {
     rm -f "$TTS_PID_FILE"
   fi
 
-  # NOTE: We NO LONGER kill all speak processes globally!
-  # This was causing race conditions across sessions.
-  # Each session only manages its own TTS PID.
+  # Safety net: Kill orphaned say/piper processes that may have been spawned
+  # by our TTS. This is needed because killing the Node process doesn't always
+  # kill its child say process.
+  # NOTE: This kills ALL say processes for current user, which is acceptable
+  # since we're in the same session context.
+  if command -v say &>/dev/null; then
+    local say_pids=$(pgrep -u "$(id -u)" say 2>/dev/null || echo "")
+    if [[ -n "$say_pids" ]]; then
+      tts_log "Killing orphaned say processes: $say_pids"
+      pkill -u "$(id -u)" say 2>/dev/null || true
+    fi
+  fi
+
+  # Also kill any orphaned piper processes
+  local piper_pids=$(pgrep -u "$(id -u)" -f "piper" 2>/dev/null || echo "")
+  if [[ -n "$piper_pids" ]]; then
+    tts_log "Killing orphaned piper processes: $piper_pids"
+    pkill -u "$(id -u)" -f "piper" 2>/dev/null || true
+  fi
 
   # Brief wait for cleanup
   sleep 0.1
