@@ -10,6 +10,9 @@ CONFIG_FILE="${INSTALL_DIR}/config.json"
 LOG_FILE="${INSTALL_DIR}/prompt-ack-hook.log"
 WATCHER_PID_FILE="${INSTALL_DIR}/transcript-watcher.pid"
 
+# Source session detection library
+source "${INSTALL_DIR}/lib/session-detect.sh" 2>/dev/null || true
+
 # Function to log messages
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
@@ -88,6 +91,12 @@ main() {
   fi
 
   log "Transcript: $transcript_path"
+
+  # Check if this is a session start - skip voice on first prompt
+  if type should_skip_session_start &>/dev/null && should_skip_session_start "$transcript_path"; then
+    log "Session start detected, skipping acknowledgment voice"
+    exit 0
+  fi
 
   # Kill any existing watcher before starting new one
   kill_existing_watcher

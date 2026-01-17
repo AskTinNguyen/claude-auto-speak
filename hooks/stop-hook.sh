@@ -17,6 +17,9 @@ WATCHER_PID_FILE="${INSTALL_DIR}/transcript-watcher.pid"
 # Source TTS manager for exclusive playback
 source "${INSTALL_DIR}/lib/tts-manager.sh" 2>/dev/null || true
 
+# Source session detection library
+source "${INSTALL_DIR}/lib/session-detect.sh" 2>/dev/null || true
+
 # Function to log messages
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
@@ -114,6 +117,12 @@ main() {
   fi
 
   log "Transcript path: $transcript_path"
+
+  # Check if this is a session start - skip voice on first prompt
+  if type should_skip_session_start &>/dev/null && should_skip_session_start "$transcript_path"; then
+    log "Session start detected, skipping auto-speak voice"
+    exit 0
+  fi
 
   # Check if summarizer script exists
   if [[ ! -f "$SUMMARIZE_SCRIPT" ]]; then
