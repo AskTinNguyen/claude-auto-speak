@@ -35,16 +35,16 @@ if [[ ! -f "$PIPER_BIN" ]]; then
   fi
 fi
 
-# Vietnamese voice (vi_VN-vivos-medium)
-echo "📥 Downloading Vietnamese voice (vi_VN-vivos-medium)..."
-if [[ -f "$VOICE_DIR/vi_VN-vivos-medium.onnx" ]]; then
+# Vietnamese voice (vi_VN-vais1000-medium)
+echo "📥 Downloading Vietnamese voice (vi_VN-vais1000-medium)..."
+if [[ -f "$VOICE_DIR/vi_VN-vais1000-medium.onnx" ]]; then
   echo "   ✓ Vietnamese voice already installed (skipping)"
 else
-  curl -# -L -o "$VOICE_DIR/vi_VN-vivos-medium.onnx" \
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/medium/vi_VN-vivos-medium.onnx"
+  curl -# -L -o "$VOICE_DIR/vi_VN-vais1000-medium.onnx" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx"
 
-  curl -# -L -o "$VOICE_DIR/vi_VN-vivos-medium.onnx.json" \
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/medium/vi_VN-vivos-medium.onnx.json"
+  curl -# -L -o "$VOICE_DIR/vi_VN-vais1000-medium.onnx.json" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json"
 
   echo "   ✓ Vietnamese voice installed"
 fi
@@ -70,7 +70,7 @@ echo "✅ Multi-language setup complete!"
 echo "====================================="
 echo ""
 echo "Installed voices:"
-echo "  • Vietnamese: vi_VN-vivos-medium"
+echo "  • Vietnamese: vi_VN-vais1000-medium"
 echo "  • Chinese:    zh_CN-huayan-medium"
 echo ""
 echo "To enable multilingual TTS:"

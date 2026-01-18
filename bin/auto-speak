@@ -61,7 +61,7 @@ ${colors.bold("Commands:")}
 
 ${colors.bold("Config Options:")}
   auto-speak config                            Show current config
-  auto-speak config tts <macos|piper>          Set TTS engine (default: macos)
+  auto-speak config tts <macos|piper|espeak-ng> Set TTS engine (default: macos)
   auto-speak config voice <name>               Set voice (e.g., Samantha, Alex)
   auto-speak config rate <speed>               Set speech rate (default: 175)
   auto-speak config llm <on|off>               Enable/disable LLM summarization
@@ -83,6 +83,7 @@ ${colors.bold("Examples:")}
   auto-speak on                         Enable auto-speak
   auto-speak off                        Disable auto-speak
   auto-speak config tts piper           Use Piper neural TTS
+  auto-speak config tts espeak-ng       Use eSpeak-NG (100+ languages)
   auto-speak config voice Alex          Use Alex voice (macOS)
   auto-speak test                       Test current configuration
 `);
@@ -197,14 +198,18 @@ function cmdConfig(args) {
 
   switch (key) {
     case "tts":
-      if (value !== "macos" && value !== "piper") {
+      if (value !== "macos" && value !== "piper" && value !== "espeak-ng") {
         console.error(colors.red(`Invalid TTS engine: ${value}`));
-        console.log(colors.dim("Valid engines: macos, piper"));
+        console.log(colors.dim("Valid engines: macos, piper, espeak-ng"));
         return;
       }
       if (value === "piper" && !config.piperPath) {
         console.log(colors.yellow("Note: Piper not configured yet"));
         console.log(colors.dim("Run: ~/.claude-auto-speak/setup/piper-setup.sh"));
+      }
+      if (value === "espeak-ng" && !config.espeakPath) {
+        console.log(colors.yellow("Note: eSpeak-NG not configured yet"));
+        console.log(colors.dim("Install: brew install espeak-ng"));
       }
       config.ttsEngine = value;
       saveConfig(config);

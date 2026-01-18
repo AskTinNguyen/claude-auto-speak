@@ -33,7 +33,7 @@ Claude Auto-Speak uses [Piper](https://github.com/rhasspy/piper) for high-qualit
 ### Currently Installed Languages
 
 - **English (en_US)**: `en_US-lessac-medium`
-- **Vietnamese (vi_VN)**: `vi_VN-vivos-medium`
+- **Vietnamese (vi_VN)**: `vi_VN-vais1000-medium`
 - **Chinese (zh_CN)**: `zh_CN-huayan-medium`
 
 ### Finding New Voice Models
@@ -225,7 +225,7 @@ Edit `lib/language-voice-mapper.mjs` to add your new language:
 ```javascript
 export const PIPER_VOICES = {
   en: 'en_US-lessac-medium',
-  vi: 'vi_VN-vivos-medium',
+  vi: 'vi_VN-vais1000-medium',
   zh: 'zh_CN-huayan-medium',
   ja: 'ja_JP-qbo-medium',        // Add Japanese
   ko: 'ko_KR-kss-medium',        // Add Korean
@@ -291,9 +291,9 @@ multilingual: {
   autoDetect: true,
   voiceByLanguage: {
     en: "en_US-lessac-medium",
-    vi: "vi_VN-vivos-medium",
+    vi: "vi_VN-vais1000-medium",
     zh: "zh_CN-huayan-medium",
-    ja: "ja_JP-qbo-medium",
+    ja: "ja_VP-qbo-medium",
     ko: "ko_KR-kss-medium",
     es: "es_ES-davefx-medium",
   },

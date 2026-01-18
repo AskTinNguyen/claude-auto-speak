@@ -19,6 +19,7 @@ import { loadConfig } from "../lib/config.mjs";
 import {
   detectLanguage,
   getVoiceForLanguage,
+  getEspeakVoiceForLanguage,
 } from "../lib/language-voice-mapper.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -64,9 +65,9 @@ Usage:
   speak --voice Samantha --rate 180 "Hello world"
 
 Options:
-  --engine, -e <name>   TTS engine: macos or piper (default: from config)
-  --voice, -v <name>    Voice to use (default: Samantha for macOS)
-  --rate, -r <speed>    Speech rate in words per minute (default: 175)
+  --engine, -e <name>   TTS engine: macos, piper, or espeak-ng (default: from config)
+  --voice, -v <name>    Voice to use (default: Samantha for macOS, auto-detect for others)
+  --rate, -r <speed>    Speech rate in words per minute (default: 175, macOS only)
   --help, -h            Show this help message
 
 macOS Voices (run 'say -v ?' to see all):
@@ -80,11 +81,18 @@ Piper:
   Install with: ~/.claude-auto-speak/setup/piper-setup.sh
   Higher quality neural voices
 
+eSpeak-NG:
+  Install with: brew install espeak-ng
+  Supports 100+ languages including Vietnamese
+  Vietnamese dialects: vi (Northern), vi-vn-x-central, vi-vn-x-south
+
 Examples:
   speak "Build completed successfully"
   echo "All tests passed" | speak
   speak -v Alex -r 200 "Hello world"
   speak -e piper "High quality voice"
+  speak -e espeak-ng -v vi "Xin chào"
+  speak -e espeak-ng -v vi-vn-x-south "Xin chào miền Nam"
 `);
 }
 
@@ -159,8 +167,15 @@ function speakWithPiper(text, config) {
 
     try {
       // Run piper to generate audio
+      // Set DYLD_LIBRARY_PATH for Homebrew libraries on macOS
+      const env = { ...process.env };
+      if (process.platform === "darwin") {
+        env.DYLD_LIBRARY_PATH = "/opt/homebrew/lib:/usr/local/lib:" + (env.DYLD_LIBRARY_PATH || "");
+      }
+
       execSync(`echo "${text.replace(/"/g, '\\"')}" | "${piperPath}" --model "${voicePath}" --output_file "${tempFile}"`, {
         stdio: ["pipe", "pipe", "pipe"],
+        env,
       });
 
       // Play the audio
@@ -181,6 +196,41 @@ function speakWithPiper(text, config) {
         unlinkSync(tempFile);
       }
       console.error(`Piper TTS error: ${err.message}`);
+      reject(err);
+    }
+  });
+}
+
+// Speak text using eSpeak-NG TTS
+function speakWithEspeak(text, voice, config) {
+  return new Promise((resolve, reject) => {
+    const espeakPath = config.espeakPath || "/opt/homebrew/bin/espeak-ng";
+
+    if (!existsSync(espeakPath)) {
+      console.error("Error: eSpeak-NG not installed");
+      console.error("Install with: brew install espeak-ng");
+      reject(new Error("eSpeak-NG not installed"));
+      return;
+    }
+
+    try {
+      // Run espeak-ng directly (it plays audio automatically)
+      const args = ["-v", voice, text];
+
+      const child = spawn(espeakPath, args, {
+        stdio: ["ignore", "inherit", "inherit"],
+      });
+
+      child.on("exit", (code) => {
+        resolve(code ?? 0);
+      });
+
+      child.on("error", (err) => {
+        console.error(`eSpeak-NG TTS error: ${err.message}`);
+        reject(err);
+      });
+    } catch (err) {
+      console.error(`eSpeak-NG TTS error: ${err.message}`);
       reject(err);
     }
   });
@@ -219,16 +269,27 @@ async function main() {
     detectedLang = detectLanguage(text);
   }
 
-  // Auto-select voice based on language (for Piper)
+  // Auto-select voice based on language
   let voice = args.voice;
+
+  // For Piper: convert to full path
   if (!voice && config.multilingual?.enabled && engine === "piper") {
     const piperVoiceName = getVoiceForLanguage(detectedLang, config);
-    // Convert voice name to full path
     const voiceDir = join(
       process.env.HOME || process.env.USERPROFILE,
       ".local/share/piper-voices"
     );
     voice = join(voiceDir, `${piperVoiceName}.onnx`);
+  }
+
+  // For eSpeak-NG: get language code
+  let espeakVoice = null;
+  if (engine === "espeak-ng") {
+    if (config.multilingual?.enabled) {
+      espeakVoice = getEspeakVoiceForLanguage(detectedLang, config);
+    } else {
+      espeakVoice = config.espeakVoice || "en";
+    }
   }
 
   try {
@@ -251,9 +312,12 @@ async function main() {
       const macosVoice = args.voice || config.voice || "Samantha";
       const rate = args.rate || config.rate || "175";
       code = await speakWithMacOS(text, macosVoice, String(rate));
+    } else if (engine === "espeak-ng") {
+      const voiceToUse = args.voice || espeakVoice || "en";
+      code = await speakWithEspeak(text, voiceToUse, config);
     } else {
       console.error(`Error: Unknown TTS engine: ${engine}`);
-      console.error("Available engines: macos, piper");
+      console.error("Available engines: macos, piper, espeak-ng");
       process.exit(1);
     }
 
