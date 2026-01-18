@@ -715,6 +715,32 @@ This script will:
 2. Install VieNeu-TTS and dependencies
 3. Download model weights (~500MB)
 4. Create voice cloning utilities
+5. **Install 10 bundled pre-cloned voices** (ready to use immediately)
+
+### Bundled Voices
+
+The repo includes 10 pre-cloned voices that are automatically installed:
+
+| Voice | Description |
+|-------|-------------|
+| `ân` | Casual, bubbly and energetic |
+| `jessica` | Eloquent villain |
+| `kuon` | Cheerful, clear and steady |
+| `phuong` | Smooth, comforting and gentle |
+| `serafina` | Sensual temptress |
+| `thanh` | Clear, steady and informative |
+| `thảo` | Soft, calm and gentle |
+| `tung` | Deep, warm and resonant |
+| `tuyết` | Crisp, formal and professional |
+| `vivien` | Mysterious witch |
+
+Use any bundled voice immediately after setup:
+
+```bash
+auto-speak config tts vieneu
+auto-speak config vieneu-voice thanh
+echo "Xin chào thế giới" | speak
+```
 
 **Manual Installation:**
 

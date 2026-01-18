@@ -175,6 +175,35 @@ auto-speak config tts piper
 
 Piper voices are downloaded to `~/.local/share/piper-voices/`.
 
+## VieNeu-TTS Setup (Vietnamese Voice Cloning)
+
+VieNeu-TTS provides high-quality Vietnamese TTS with voice cloning support. Includes 10 pre-cloned voices ready to use.
+
+```bash
+# Install VieNeu-TTS
+./setup/vieneu-setup.sh
+
+# Switch to VieNeu
+auto-speak config tts vieneu
+
+# Use a bundled voice (thanh, phuong, tung, thảo, tuyết, ân, kuon, vivien, serafina, jessica)
+auto-speak config vieneu-voice thanh
+
+# Test
+echo "Xin chào thế giới" | speak
+```
+
+Clone your own voice with 3-5 seconds of audio:
+
+```bash
+source ~/.claude-auto-speak/vieneu/venv/bin/activate
+python ~/.claude-auto-speak/vieneu/clone-voice.py my_audio.wav my_voice
+deactivate
+auto-speak config vieneu-voice my_voice
+```
+
+See [VOICE_CLONING.md](VOICE_CLONING.md) for detailed instructions.
+
 ## Ollama Setup
 
 For intelligent context-aware summarization:

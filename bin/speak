@@ -11,7 +11,7 @@
  */
 
 import { spawn, execSync } from "child_process";
-import { existsSync, unlinkSync } from "fs";
+import { existsSync, unlinkSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -119,6 +119,37 @@ async function readStdin() {
   });
 }
 
+// Wait for file to be ready for reading
+async function waitForFile(filePath, timeoutMs = 1000) {
+  const startTime = Date.now();
+
+  return new Promise((resolve, reject) => {
+    const checkFile = () => {
+      try {
+        // Check if file exists and has content
+        const stats = statSync(filePath);
+        if (stats.size > 44) {  // WAV header is 44 bytes minimum
+          resolve();
+          return;
+        }
+      } catch (err) {
+        // File doesn't exist yet or can't be read
+      }
+
+      // Check timeout
+      if (Date.now() - startTime > timeoutMs) {
+        reject(new Error(`File readiness timeout: ${filePath}`));
+        return;
+      }
+
+      // Try again after 5ms
+      setTimeout(checkFile, 5);
+    };
+
+    checkFile();
+  });
+}
+
 // Speak text using macOS say command
 function speakWithMacOS(text, voice, rate) {
   return new Promise((resolve, reject) => {
@@ -150,8 +181,8 @@ function speakWithMacOS(text, voice, rate) {
 }
 
 // Speak text using Piper TTS
-function speakWithPiper(text, config) {
-  return new Promise((resolve, reject) => {
+async function speakWithPiper(text, config) {
+  return new Promise(async (resolve, reject) => {
     const piperPath = config.piperPath;
     const voicePath = config.piperVoice;
 
@@ -184,6 +215,14 @@ function speakWithPiper(text, config) {
         stdio: ["pipe", "pipe", "pipe"],
         env,
       });
+
+      // Wait for file to be ready (prevents initial audio cutoff)
+      try {
+        await waitForFile(tempFile, 1000);
+      } catch (err) {
+        // Fallback: small delay if verification times out
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
 
       // Play the audio
       if (process.platform === "darwin") {
@@ -244,8 +283,8 @@ function speakWithEspeak(text, voice, config) {
 }
 
 // Speak text using VieNeu-TTS (Vietnamese voice cloning)
-function speakWithVieneu(text, config) {
-  return new Promise((resolve, reject) => {
+async function speakWithVieneu(text, config) {
+  return new Promise(async (resolve, reject) => {
     const vieneuDir = join(
       process.env.HOME || process.env.USERPROFILE,
       ".claude-auto-speak/vieneu"
@@ -291,6 +330,14 @@ function speakWithVieneu(text, config) {
       execSync(`"${vieneuPath}" ${args.map((a) => `"${a}"`).join(" ")}`, {
         stdio: ["pipe", "pipe", "pipe"],
       });
+
+      // Wait for file to be ready (prevents initial audio cutoff)
+      try {
+        await waitForFile(tempFile, 1000);
+      } catch (err) {
+        // Fallback: small delay if verification times out
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
 
       // Play the audio
       if (process.platform === "darwin") {

@@ -69,7 +69,7 @@ try:
 
     # Initialize with default model (will download if not present)
     print("Initializing VieNeu-TTS model...")
-    model = VieNeuTTS(model_name="vieneu-0.3b")  # Smaller, faster model
+    model = VieNeuTTS(backbone_repo="pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf")
     print("✓ Model initialized successfully")
 
 except Exception as e:
@@ -80,6 +80,24 @@ PYTHON_SCRIPT
 # Create reference voices directory
 VOICES_DIR="$VIENEU_DIR/voices"
 mkdir -p "$VOICES_DIR"
+
+# Install bundled pre-cloned voices from repo
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+BUNDLED_VOICES_DIR="$REPO_DIR/voices/vieneu"
+
+if [ -d "$BUNDLED_VOICES_DIR" ] && [ "$(ls -A "$BUNDLED_VOICES_DIR"/*.npy 2>/dev/null)" ]; then
+    echo ""
+    echo "Installing bundled pre-cloned voices..."
+    cp "$BUNDLED_VOICES_DIR"/*.npy "$VOICES_DIR/"
+    echo "✓ Installed voices:"
+    for voice in "$VOICES_DIR"/*.npy; do
+        echo "  - $(basename "$voice" .npy)"
+    done
+else
+    echo ""
+    echo "No bundled voices found (you can clone your own later)"
+fi
 
 # Create sample voice cloning script
 cat > "$VIENEU_DIR/clone-voice.py" << 'PYTHON_CLONE'
@@ -104,10 +122,10 @@ def clone_voice(reference_audio, voice_name):
     print(f"Voice name: {voice_name}")
 
     # Initialize model
-    model = VieNeuTTS(model_name="vieneu-0.3b")
+    model = VieNeuTTS(backbone_repo="pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf")
 
-    # Extract voice embedding from reference
-    voice_embedding = model.extract_voice_embedding(reference_audio)
+    # Encode reference audio
+    voice_embedding = model.encode_reference(reference_audio)
 
     # Save voice profile
     voices_dir = Path.home() / ".claude-auto-speak/vieneu/voices"
