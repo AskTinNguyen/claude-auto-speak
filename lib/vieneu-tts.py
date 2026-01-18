@@ -19,8 +19,8 @@ def main():
     parser.add_argument('--text', type=str, help='Text to synthesize')
     parser.add_argument('--voice', type=str, required=True, help='Voice name (from cloned voices)')
     parser.add_argument('--output', type=str, required=True, help='Output WAV file path')
-    parser.add_argument('--model', type=str, default='vieneu-0.3b',
-                        help='Model name (vieneu-0.3b or vieneu-0.5b)')
+    parser.add_argument('--model', type=str, default='0.3b',
+                        help='Model variant (0.3b or 0.5b)')
 
     args = parser.parse_args()
 
@@ -39,38 +39,57 @@ def main():
         print("Error: Empty text", file=sys.stderr)
         sys.exit(1)
 
-    # Load voice embedding
-    vieneu_dir = Path.home() / ".claude-auto-speak/vieneu"
-    voices_dir = vieneu_dir / "voices"
-    voice_file = voices_dir / f"{args.voice}.npy"
-
-    if not voice_file.exists():
-        print(f"Error: Voice not found: {voice_file}", file=sys.stderr)
-        print(f"Available voices:", file=sys.stderr)
-        if voices_dir.exists():
-            for v in voices_dir.glob("*.npy"):
-                print(f"  - {v.stem}", file=sys.stderr)
-        else:
-            print("  (none - run clone-voice.py first)", file=sys.stderr)
-        sys.exit(1)
-
     try:
         # Import VieNeu (lazy import to fail fast if not installed)
         from vieneu import VieNeuTTS
         import soundfile as sf
 
-        # Load voice embedding
-        voice_embedding = np.load(voice_file)
+        # Initialize model with appropriate backbone
+        # Map model variant to Hugging Face repo (handle both "0.3b" and "vieneu-0.3b" formats)
+        model_variant = args.model.replace('vieneu-', '')
+        backbone_map = {
+            '0.3b': 'pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf',
+            '0.5b': 'pnnbao-ump/VieNeu-TTS-0.5B-q4-gguf'
+        }
+        backbone_repo = backbone_map.get(model_variant, backbone_map['0.3b'])
 
-        # Initialize model
-        model = VieNeuTTS(model_name=args.model)
+        model = VieNeuTTS(backbone_repo=backbone_repo)
 
-        # Synthesize speech
-        audio = model.synthesize(
-            text=text,
-            voice_embedding=voice_embedding,
-            speed=1.0  # Normal speed
-        )
+        # Check if voice is a preset voice (Binh, Tuyen, Vinh, Doan, Ly, Ngoc)
+        preset_voices = ['Binh', 'Tuyen', 'Vinh', 'Doan', 'Ly', 'Ngoc']
+
+        if args.voice in preset_voices:
+            # Use preset voice
+            audio = model.infer(
+                text=text,
+                voice=model.get_preset_voice(args.voice)
+            )
+        else:
+            # Try to load cloned voice reference
+            vieneu_dir = Path.home() / ".claude-auto-speak/vieneu"
+            references_dir = vieneu_dir / "references"
+            ref_audio_file = references_dir / f"{args.voice}.wav"
+
+            if not ref_audio_file.exists():
+                print(f"Error: Voice not found: {args.voice}", file=sys.stderr)
+                print(f"Available preset voices: {', '.join(preset_voices)}", file=sys.stderr)
+                print(f"Available cloned voices:", file=sys.stderr)
+                if references_dir.exists():
+                    for v in references_dir.glob("*.wav"):
+                        print(f"  - {v.stem}", file=sys.stderr)
+                else:
+                    print("  (none)", file=sys.stderr)
+                sys.exit(1)
+
+            # Encode reference audio on-the-fly
+            ref_codes = model.encode_reference(str(ref_audio_file))
+
+            # Synthesize speech using infer method
+            audio = model.infer(
+                text=text,
+                ref_codes=ref_codes,
+                ref_text=""  # Empty ref_text works for voice cloning
+            )
 
         # Save to output file
         sf.write(args.output, audio, model.sample_rate)
