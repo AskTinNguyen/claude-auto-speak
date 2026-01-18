@@ -61,7 +61,7 @@ ${colors.bold("Commands:")}
 
 ${colors.bold("Config Options:")}
   auto-speak config                            Show current config
-  auto-speak config tts <macos|piper|espeak-ng> Set TTS engine (default: macos)
+  auto-speak config tts <engine>               Set TTS engine (macos|piper|espeak-ng|vieneu)
   auto-speak config voice <name>               Set voice (e.g., Samantha, Alex)
   auto-speak config rate <speed>               Set speech rate (default: 175)
   auto-speak config llm <on|off>               Enable/disable LLM summarization
@@ -69,6 +69,8 @@ ${colors.bold("Config Options:")}
   auto-speak config multilingual <on|off>      Enable/disable multilingual TTS
   auto-speak config multilingual mode <type>   Set mode (native|translate|auto)
   auto-speak config multilingual language <lang> Set language (vi|zh)
+  auto-speak config vieneu-voice <name>        Set cloned voice for VieNeu-TTS
+  auto-speak config vieneu-model <model>       Set model (vieneu-0.3b|vieneu-0.5b)
 
 ${colors.bold("History Options:")}
   auto-speak history                   Show last 20 entries
@@ -84,7 +86,9 @@ ${colors.bold("Examples:")}
   auto-speak off                        Disable auto-speak
   auto-speak config tts piper           Use Piper neural TTS
   auto-speak config tts espeak-ng       Use eSpeak-NG (100+ languages)
+  auto-speak config tts vieneu          Use VieNeu-TTS (Vietnamese voice cloning)
   auto-speak config voice Alex          Use Alex voice (macOS)
+  auto-speak config vieneu-voice my_voice Set cloned voice for VieNeu
   auto-speak test                       Test current configuration
 `);
 }
@@ -198,9 +202,9 @@ function cmdConfig(args) {
 
   switch (key) {
     case "tts":
-      if (value !== "macos" && value !== "piper" && value !== "espeak-ng") {
+      if (value !== "macos" && value !== "piper" && value !== "espeak-ng" && value !== "vieneu") {
         console.error(colors.red(`Invalid TTS engine: ${value}`));
-        console.log(colors.dim("Valid engines: macos, piper, espeak-ng"));
+        console.log(colors.dim("Valid engines: macos, piper, espeak-ng, vieneu"));
         return;
       }
       if (value === "piper" && !config.piperPath) {
@@ -210,6 +214,11 @@ function cmdConfig(args) {
       if (value === "espeak-ng" && !config.espeakPath) {
         console.log(colors.yellow("Note: eSpeak-NG not configured yet"));
         console.log(colors.dim("Install: brew install espeak-ng"));
+      }
+      if (value === "vieneu" && !config.vieneuVoice) {
+        console.log(colors.yellow("Note: VieNeu-TTS not configured yet"));
+        console.log(colors.dim("Run: ./setup/vieneu-setup.sh"));
+        console.log(colors.dim("Then clone a voice and set: auto-speak config vieneu-voice <name>"));
       }
       config.ttsEngine = value;
       saveConfig(config);
@@ -287,9 +296,26 @@ function cmdConfig(args) {
       }
       break;
 
+    case "vieneu-voice":
+      config.vieneuVoice = value;
+      saveConfig(config);
+      console.log(colors.green(`✓ VieNeu voice set to ${value}`));
+      console.log(colors.dim("  Make sure this voice exists in ~/.claude-auto-speak/vieneu/voices/"));
+      break;
+
+    case "vieneu-model":
+      if (value !== "vieneu-0.3b" && value !== "vieneu-0.5b") {
+        console.error(colors.red("Invalid model. Valid models: vieneu-0.3b, vieneu-0.5b"));
+        return;
+      }
+      config.vieneuModel = value;
+      saveConfig(config);
+      console.log(colors.green(`✓ VieNeu model set to ${value}`));
+      break;
+
     default:
       console.error(colors.red(`Unknown config key: ${key}`));
-      console.log(colors.dim("Valid keys: tts, voice, rate, llm, ollama-url, model, multilingual"));
+      console.log(colors.dim("Valid keys: tts, voice, rate, llm, ollama-url, model, multilingual, vieneu-voice, vieneu-model"));
   }
 }
 

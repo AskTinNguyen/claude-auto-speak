@@ -684,11 +684,316 @@ node install-voice.mjs es es_ES davefx medium
 
 ---
 
+## VieNeu-TTS Voice Cloning (Vietnamese Only)
+
+VieNeu-TTS is a state-of-the-art Vietnamese TTS system that supports **instant voice cloning** with just 3-5 seconds of reference audio. This provides the highest quality Vietnamese TTS available in claude-auto-speak.
+
+### Why Use VieNeu-TTS?
+
+**Advantages:**
+- **Voice Cloning**: Clone any voice with 3-5 seconds of audio
+- **Highest Quality**: Neural TTS specifically trained for Vietnamese
+- **Natural Prosody**: Better intonation and rhythm than eSpeak-NG
+- **Customization**: Use your own voice or any voice you have permission to clone
+
+**Limitations:**
+- **Vietnamese Only**: Only supports Vietnamese language
+- **Requires Python**: Needs Python 3.8+ and additional dependencies
+- **Larger Size**: ~500MB for models vs ~60MB for Piper voices
+- **Slower**: Takes 2-3 seconds to generate audio vs instant with eSpeak-NG
+
+### Installation
+
+Run the automated setup script:
+
+```bash
+./setup/vieneu-setup.sh
+```
+
+This script will:
+1. Create a Python virtual environment at `~/.claude-auto-speak/vieneu/venv`
+2. Install VieNeu-TTS and dependencies
+3. Download model weights (~500MB)
+4. Create voice cloning utilities
+
+**Manual Installation:**
+
+```bash
+# Create virtual environment
+mkdir -p ~/.claude-auto-speak/vieneu
+cd ~/.claude-auto-speak/vieneu
+python3 -m venv venv
+source venv/bin/activate
+
+# Install VieNeu-TTS
+pip install git+https://github.com/pnnbao97/VieNeu-TTS.git
+pip install soundfile librosa scipy numpy
+
+# Test installation
+python -c "from vieneu import VieNeuTTS; print('VieNeu-TTS installed successfully')"
+```
+
+### Voice Cloning Workflow
+
+#### Step 1: Prepare Reference Audio
+
+Record or obtain a 3-5 second audio clip of the voice you want to clone.
+
+**Requirements:**
+- **Format**: WAV file
+- **Sample Rate**: 16kHz or 22kHz (recommended)
+- **Duration**: 3-5 seconds minimum
+- **Quality**: Clean speech, minimal background noise
+- **Content**: Natural Vietnamese speech (e.g., "Xin chào, tôi là trợ lý AI của bạn")
+
+**Example using macOS `say` command to generate a reference:**
+
+```bash
+# Generate a sample using macOS Vietnamese voice (if available)
+say -v "Ting-Ting" -o reference.aiff "Xin chào, tôi là trợ lý AI của bạn"
+
+# Convert to WAV format
+afconvert reference.aiff reference.wav -d LEI16@22050
+```
+
+**Recording your own voice:**
+
+```bash
+# Record using macOS (press Ctrl+C to stop)
+rec -r 22050 -c 1 my_voice_reference.wav
+
+# Or use QuickTime Player: File > New Audio Recording
+```
+
+#### Step 2: Clone the Voice
+
+Use the voice cloning script:
+
+```bash
+# Activate virtual environment
+source ~/.claude-auto-speak/vieneu/venv/bin/activate
+
+# Clone the voice
+python ~/.claude-auto-speak/vieneu/clone-voice.py my_voice_reference.wav my_voice
+
+# Deactivate when done
+deactivate
+```
+
+This will extract voice embeddings and save them to:
+```
+~/.claude-auto-speak/vieneu/voices/my_voice.npy
+```
+
+#### Step 3: Configure claude-auto-speak
+
+Set VieNeu-TTS as the TTS engine and configure the cloned voice:
+
+```bash
+# Set VieNeu as TTS engine
+auto-speak config tts vieneu
+
+# Set your cloned voice
+auto-speak config vieneu-voice my_voice
+
+# Optional: Choose model variant
+auto-speak config vieneu-model vieneu-0.3b  # Faster (default)
+# OR
+auto-speak config vieneu-model vieneu-0.5b  # Higher quality, slower
+```
+
+#### Step 4: Test
+
+```bash
+# Test with a simple phrase
+echo "Xin chào thế giới" | speak
+
+# Test with a longer sentence
+echo "Tôi là Claude, một trợ lý AI được phát triển bởi Anthropic" | speak
+
+# Test with auto-speak
+auto-speak test
+```
+
+### Model Variants
+
+VieNeu-TTS offers two model variants:
+
+| Model | Size | Speed | Quality | Recommended Use |
+|-------|------|-------|---------|----------------|
+| **vieneu-0.3b** | ~300MB | 2x faster | Good | Default, real-time applications |
+| **vieneu-0.5b** | ~500MB | 1x | Excellent | Maximum quality, offline use |
+
+**Change model:**
+```bash
+auto-speak config vieneu-model vieneu-0.5b
+```
+
+### Configuration
+
+**Default VieNeu Config:**
+```json
+{
+  "ttsEngine": "vieneu",
+  "vieneuPath": null,  // Auto-detected: ~/.claude-auto-speak/vieneu/venv/bin/python3
+  "vieneuVoice": "my_voice",  // Name of your cloned voice
+  "vieneuModel": "vieneu-0.3b"  // or "vieneu-0.5b"
+}
+```
+
+### Managing Cloned Voices
+
+**List available voices:**
+```bash
+ls ~/.claude-auto-speak/vieneu/voices/
+```
+
+**Clone multiple voices:**
+```bash
+# Clone a male voice
+python ~/.claude-auto-speak/vieneu/clone-voice.py male_reference.wav male_voice
+
+# Clone a female voice
+python ~/.claude-auto-speak/vieneu/clone-voice.py female_reference.wav female_voice
+
+# Switch between voices
+auto-speak config vieneu-voice male_voice
+auto-speak config vieneu-voice female_voice
+```
+
+**Delete a voice:**
+```bash
+rm ~/.claude-auto-speak/vieneu/voices/my_voice.npy
+```
+
+### Troubleshooting
+
+**Issue: "VieNeu-TTS not installed"**
+
+```bash
+# Reinstall VieNeu-TTS
+./setup/vieneu-setup.sh
+```
+
+**Issue: "Voice not found"**
+
+```bash
+# Check available voices
+ls ~/.claude-auto-speak/vieneu/voices/
+
+# Re-clone the voice
+source ~/.claude-auto-speak/vieneu/venv/bin/activate
+python ~/.claude-auto-speak/vieneu/clone-voice.py your_audio.wav my_voice
+```
+
+**Issue: Audio quality is poor**
+
+- Try using the higher quality model: `auto-speak config vieneu-model vieneu-0.5b`
+- Ensure reference audio is high quality (clean, 22kHz, no background noise)
+- Re-clone with a better quality reference audio
+
+**Issue: Slow synthesis**
+
+- Use the faster model: `auto-speak config vieneu-model vieneu-0.3b`
+- Close other Python applications to free up memory
+- Consider using eSpeak-NG for faster (but lower quality) Vietnamese TTS
+
+**Issue: Python version incompatible**
+
+```bash
+# Check Python version (requires 3.8+)
+python3 --version
+
+# If too old, install newer Python
+brew install python@3.11
+
+# Recreate virtual environment with newer Python
+rm -rf ~/.claude-auto-speak/vieneu/venv
+python3.11 -m venv ~/.claude-auto-speak/vieneu/venv
+./setup/vieneu-setup.sh
+```
+
+### Comparison: VieNeu vs eSpeak-NG vs Piper
+
+| Feature | VieNeu-TTS | eSpeak-NG | Piper |
+|---------|------------|-----------|-------|
+| **Quality** | Excellent (neural) | Fair (formant) | Good (neural) |
+| **Voice Cloning** | Yes (3-5s audio) | No | No |
+| **Speed** | Slow (2-3s) | Instant | Fast (0.5s) |
+| **Languages** | Vietnamese only | 100+ languages | 40+ languages |
+| **Installation** | Complex (Python) | Simple (brew) | Medium (binary) |
+| **Size** | ~500MB | ~30MB | ~60MB per voice |
+| **Vietnamese Dialects** | No | 3 dialects | Limited |
+| **Customization** | Full voice control | Voice parameters | Pre-trained only |
+
+**Recommendation:**
+- **Use VieNeu-TTS** if you want the highest quality Vietnamese TTS and can accept 2-3 second latency
+- **Use eSpeak-NG** if you need instant responses or multiple language support
+- **Use Piper** for balanced quality/speed in non-Vietnamese languages
+
+### Example Workflow: Custom Vietnamese Voice
+
+```bash
+# 1. Record your voice
+say -v "Ting-Ting" -o reference.aiff "Xin chào, tôi là trợ lý AI của bạn. Hôm nay tôi sẽ giúp bạn với công việc lập trình"
+afconvert reference.aiff reference.wav -d LEI16@22050
+
+# 2. Clone the voice
+source ~/.claude-auto-speak/vieneu/venv/bin/activate
+python ~/.claude-auto-speak/vieneu/clone-voice.py reference.wav my_custom_voice
+deactivate
+
+# 3. Configure
+auto-speak config tts vieneu
+auto-speak config vieneu-voice my_custom_voice
+
+# 4. Enable multilingual mode for auto-detection
+auto-speak config multilingual on
+auto-speak config multilingual mode native
+
+# 5. Test
+echo "Xin chào! Đây là giọng nói tùy chỉnh của tôi" | speak
+```
+
+### API Reference (Advanced)
+
+The VieNeu-TTS wrapper script `lib/vieneu-tts.py` can be used directly:
+
+```bash
+# Activate virtual environment
+source ~/.claude-auto-speak/vieneu/venv/bin/activate
+
+# Direct usage
+python lib/vieneu-tts.py \
+  --text "Xin chào thế giới" \
+  --voice my_voice \
+  --output /tmp/output.wav \
+  --model vieneu-0.3b
+
+# Play the generated audio
+afplay /tmp/output.wav
+
+# From stdin
+echo "Xin chào" | python lib/vieneu-tts.py \
+  --voice my_voice \
+  --output /tmp/output.wav
+```
+
+---
+
 ## Resources
 
-- **Piper TTS Repository**: https://github.com/rhasspy/piper
-- **Voice Model Repository**: https://huggingface.co/rhasspy/piper-voices
+**Piper TTS:**
+- **Repository**: https://github.com/rhasspy/piper
+- **Voice Models**: https://huggingface.co/rhasspy/piper-voices
 - **Supported Languages**: https://github.com/rhasspy/piper/blob/master/LANGUAGES.md
+
+**VieNeu-TTS (Vietnamese Voice Cloning):**
+- **Repository**: https://github.com/pnnbao97/VieNeu-TTS
+- **Hugging Face**: https://huggingface.co/pnnbao-ump/VieNeu-TTS
+- **Paper**: [Instant Voice Cloning for Vietnamese TTS]
+
+**Other:**
 - **Language Detection (franc)**: https://github.com/wooorm/franc
 - **ISO 639 Language Codes**: https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes
 

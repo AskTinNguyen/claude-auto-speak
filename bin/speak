@@ -65,7 +65,7 @@ Usage:
   speak --voice Samantha --rate 180 "Hello world"
 
 Options:
-  --engine, -e <name>   TTS engine: macos, piper, or espeak-ng (default: from config)
+  --engine, -e <name>   TTS engine: macos, piper, espeak-ng, or vieneu (default: from config)
   --voice, -v <name>    Voice to use (default: Samantha for macOS, auto-detect for others)
   --rate, -r <speed>    Speech rate in words per minute (default: 175, macOS only)
   --help, -h            Show this help message
@@ -86,6 +86,12 @@ eSpeak-NG:
   Supports 100+ languages including Vietnamese
   Vietnamese dialects: vi (Northern), vi-vn-x-central, vi-vn-x-south
 
+VieNeu-TTS (Vietnamese Voice Cloning):
+  Install with: ./setup/vieneu-setup.sh
+  Clone any Vietnamese voice with just 3-5 seconds of audio
+  Highest quality neural Vietnamese TTS
+  Requires: Python 3.8+, Ollama (optional for translation)
+
 Examples:
   speak "Build completed successfully"
   echo "All tests passed" | speak
@@ -93,6 +99,7 @@ Examples:
   speak -e piper "High quality voice"
   speak -e espeak-ng -v vi "Xin chào"
   speak -e espeak-ng -v vi-vn-x-south "Xin chào miền Nam"
+  speak -e vieneu "Xin chào thế giới" (uses cloned voice)
 `);
 }
 
@@ -236,6 +243,78 @@ function speakWithEspeak(text, voice, config) {
   });
 }
 
+// Speak text using VieNeu-TTS (Vietnamese voice cloning)
+function speakWithVieneu(text, config) {
+  return new Promise((resolve, reject) => {
+    const vieneuDir = join(
+      process.env.HOME || process.env.USERPROFILE,
+      ".claude-auto-speak/vieneu"
+    );
+
+    const vieneuPath = config.vieneuPath || join(vieneuDir, "venv/bin/python3");
+    const vieneuScript = join(__dirname, "../lib/vieneu-tts.py");
+
+    if (!existsSync(vieneuPath)) {
+      console.error("Error: VieNeu-TTS not installed");
+      console.error("Install with: ./setup/vieneu-setup.sh");
+      reject(new Error("VieNeu-TTS not installed"));
+      return;
+    }
+
+    if (!config.vieneuVoice) {
+      console.error("Error: No VieNeu voice configured");
+      console.error("Clone a voice first:");
+      console.error(`  source ${vieneuDir}/venv/bin/activate`);
+      console.error(`  python ${vieneuDir}/clone-voice.py your_audio.wav my_voice`);
+      console.error("Then set: auto-speak config vieneu-voice my_voice");
+      reject(new Error("No VieNeu voice configured"));
+      return;
+    }
+
+    // Generate temp wav file
+    const tempFile = join(tmpdir(), `speak-${Date.now()}.wav`);
+
+    try {
+      // Run vieneu-tts.py to generate audio
+      const args = [
+        vieneuScript,
+        "--text",
+        text,
+        "--voice",
+        config.vieneuVoice,
+        "--output",
+        tempFile,
+        "--model",
+        config.vieneuModel || "vieneu-0.3b",
+      ];
+
+      execSync(`"${vieneuPath}" ${args.map((a) => `"${a}"`).join(" ")}`, {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      // Play the audio
+      if (process.platform === "darwin") {
+        execSync(`afplay "${tempFile}"`, { stdio: "inherit" });
+      } else {
+        execSync(`aplay "${tempFile}"`, { stdio: "inherit" });
+      }
+
+      // Clean up
+      if (existsSync(tempFile)) {
+        unlinkSync(tempFile);
+      }
+
+      resolve(0);
+    } catch (err) {
+      if (existsSync(tempFile)) {
+        unlinkSync(tempFile);
+      }
+      console.error(`VieNeu-TTS error: ${err.message}`);
+      reject(err);
+    }
+  });
+}
+
 // Main
 async function main() {
   // Parse args (skip node and script path)
@@ -315,9 +394,11 @@ async function main() {
     } else if (engine === "espeak-ng") {
       const voiceToUse = args.voice || espeakVoice || "en";
       code = await speakWithEspeak(text, voiceToUse, config);
+    } else if (engine === "vieneu") {
+      code = await speakWithVieneu(text, config);
     } else {
       console.error(`Error: Unknown TTS engine: ${engine}`);
-      console.error("Available engines: macos, piper, espeak-ng");
+      console.error("Available engines: macos, piper, espeak-ng, vieneu");
       process.exit(1);
     }
 
