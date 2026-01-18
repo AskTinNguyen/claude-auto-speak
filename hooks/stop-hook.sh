@@ -165,6 +165,9 @@ main() {
     fi
   fi
 
+  # Log to speech history (silent failure)
+  echo "$summary" | node "${INSTALL_DIR}/lib/log-speech.mjs" 2>/dev/null || true
+
   log "TTS started for final summary"
   log "=== Hook complete ==="
 

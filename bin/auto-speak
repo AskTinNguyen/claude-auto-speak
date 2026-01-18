@@ -22,7 +22,14 @@ import {
   INSTALL_DIR,
   CONFIG_FILE,
   LOG_FILE,
+  HISTORY_FILE,
 } from "../lib/config.mjs";
+import {
+  queryHistory,
+  clearHistory,
+  getHistoryStats,
+  exportHistoryAsText,
+} from "../lib/speech-history.mjs";
 
 // Colors for terminal output
 const colors = {
@@ -49,15 +56,28 @@ ${colors.bold("Commands:")}
   ${colors.cyan("config")}    Show/set configuration
   ${colors.cyan("test")}      Test TTS with a sample message
   ${colors.cyan("logs")}      Show recent log entries
+  ${colors.cyan("history")}   View speech history
   ${colors.cyan("help")}      Show this help message
 
 ${colors.bold("Config Options:")}
-  auto-speak config                     Show current config
-  auto-speak config tts <macos|piper>   Set TTS engine (default: macos)
-  auto-speak config voice <name>        Set voice (e.g., Samantha, Alex)
-  auto-speak config rate <speed>        Set speech rate (default: 175)
-  auto-speak config llm <on|off>        Enable/disable LLM summarization
-  auto-speak config ollama-url <url>    Set Ollama URL
+  auto-speak config                            Show current config
+  auto-speak config tts <macos|piper>          Set TTS engine (default: macos)
+  auto-speak config voice <name>               Set voice (e.g., Samantha, Alex)
+  auto-speak config rate <speed>               Set speech rate (default: 175)
+  auto-speak config llm <on|off>               Enable/disable LLM summarization
+  auto-speak config ollama-url <url>           Set Ollama URL
+  auto-speak config multilingual <on|off>      Enable/disable multilingual TTS
+  auto-speak config multilingual mode <type>   Set mode (native|translate|auto)
+  auto-speak config multilingual language <lang> Set language (vi|zh)
+
+${colors.bold("History Options:")}
+  auto-speak history                   Show last 20 entries
+  auto-speak history --limit <n>       Show last n entries
+  auto-speak history --today           Show today's history
+  auto-speak history --since <date>    Show history since date
+  auto-speak history --stats           Show history statistics
+  auto-speak history --clear           Clear all history
+  auto-speak history --export txt      Export history as text
 
 ${colors.bold("Examples:")}
   auto-speak on                         Enable auto-speak
@@ -223,9 +243,48 @@ function cmdConfig(args) {
       console.log(colors.green(`✓ Ollama model set to ${value}`));
       break;
 
+    case "multilingual":
+      // Handle multilingual subcommands
+      if (value === "on" || value === "true") {
+        config.multilingual = config.multilingual || {};
+        config.multilingual.enabled = true;
+        saveConfig(config);
+        console.log(colors.green("✓ Multilingual TTS enabled"));
+        console.log(colors.dim("  Configure mode: auto-speak config multilingual mode <native|translate|auto>"));
+      } else if (value === "off" || value === "false") {
+        config.multilingual = config.multilingual || {};
+        config.multilingual.enabled = false;
+        saveConfig(config);
+        console.log(colors.green("✓ Multilingual TTS disabled"));
+      } else if (value === "mode") {
+        const mode = args[2];
+        if (!mode || !["native", "translate", "auto"].includes(mode)) {
+          console.error(colors.red("Invalid mode. Valid modes: native, translate, auto"));
+          return;
+        }
+        config.multilingual = config.multilingual || {};
+        config.multilingual.mode = mode;
+        saveConfig(config);
+        console.log(colors.green(`✓ Multilingual mode set to ${mode}`));
+      } else if (value === "language") {
+        const lang = args[2];
+        if (!lang || !["vi", "zh"].includes(lang)) {
+          console.error(colors.red("Invalid language. Supported: vi (Vietnamese), zh (Chinese)"));
+          return;
+        }
+        config.multilingual = config.multilingual || {};
+        config.multilingual.targetLanguage = lang;
+        saveConfig(config);
+        console.log(colors.green(`✓ Target language set to ${lang}`));
+      } else {
+        console.error(colors.red(`Invalid multilingual option: ${value}`));
+        console.log(colors.dim("Usage: auto-speak config multilingual <on|off|mode|language>"));
+      }
+      break;
+
     default:
       console.error(colors.red(`Unknown config key: ${key}`));
-      console.log(colors.dim("Valid keys: tts, voice, rate, llm, ollama-url, model"));
+      console.log(colors.dim("Valid keys: tts, voice, rate, llm, ollama-url, model, multilingual"));
   }
 }
 
@@ -285,6 +344,91 @@ function cmdLogs() {
   }
 }
 
+// Show/manage speech history
+async function cmdHistory(args) {
+  const subCommand = args[0];
+
+  // Show stats
+  if (subCommand === "--stats") {
+    const stats = await getHistoryStats();
+    console.log(colors.bold("\nSpeech History Statistics:\n"));
+    console.log(`  Total entries: ${stats.totalEntries}`);
+    console.log(`  Oldest entry:  ${stats.oldestEntry ? new Date(stats.oldestEntry).toLocaleString() : "N/A"}`);
+    console.log(`  Newest entry:  ${stats.newestEntry ? new Date(stats.newestEntry).toLocaleString() : "N/A"}`);
+    console.log(`  File size:     ${(stats.fileSize / 1024).toFixed(2)} KB`);
+    console.log(colors.dim(`\n  File: ${HISTORY_FILE}\n`));
+    return;
+  }
+
+  // Clear history
+  if (subCommand === "--clear") {
+    const success = await clearHistory();
+    if (success) {
+      console.log(colors.green("✓ Speech history cleared"));
+    } else {
+      console.log(colors.red("✗ Failed to clear history"));
+    }
+    return;
+  }
+
+  // Export as text
+  if (subCommand === "--export") {
+    const format = args[1] || "txt";
+    if (format !== "txt") {
+      console.error(colors.red("Only txt format supported currently"));
+      return;
+    }
+    const text = await exportHistoryAsText();
+    console.log(text);
+    return;
+  }
+
+  // Parse query options
+  let limit = 20;
+  let since = null;
+
+  if (subCommand === "--limit") {
+    limit = parseInt(args[1], 10) || 20;
+  } else if (subCommand === "--today") {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    since = today;
+  } else if (subCommand === "--since") {
+    const dateStr = args[1];
+    if (dateStr) {
+      since = new Date(dateStr);
+      if (isNaN(since.getTime())) {
+        console.error(colors.red(`Invalid date: ${dateStr}`));
+        return;
+      }
+    }
+  } else if (subCommand) {
+    console.error(colors.red(`Unknown option: ${subCommand}`));
+    console.log(colors.dim("Valid options: --limit, --today, --since, --stats, --clear, --export"));
+    return;
+  }
+
+  // Query history
+  const entries = await queryHistory({ since, limit });
+
+  if (entries.length === 0) {
+    console.log(colors.dim("No history entries found"));
+    return;
+  }
+
+  console.log(colors.bold("\nSpeech History:\n"));
+  entries.forEach((entry) => {
+    const date = new Date(entry.timestamp);
+    const formattedDate = date.toLocaleString();
+    console.log(colors.cyan(`[${formattedDate}]`));
+    console.log(`  ${entry.text}`);
+    console.log("");
+  });
+
+  console.log(colors.dim(`Showing ${entries.length} entries`));
+  console.log(colors.dim(`Run ${colors.cyan("auto-speak history --help")} for more options\n`));
+}
+
 // Main
 function main() {
   const args = process.argv.slice(2);
@@ -313,6 +457,10 @@ function main() {
 
     case "logs":
       cmdLogs();
+      break;
+
+    case "history":
+      cmdHistory(args.slice(1));
       break;
 
     case "help":

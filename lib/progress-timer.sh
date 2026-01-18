@@ -75,6 +75,8 @@ is_progress_enabled() {
 speak_phrase() {
   local phrase="$1"
   speak_exclusive "$phrase" || true
+  # Log to speech history (silent failure)
+  echo "$phrase" | node "${INSTALL_DIR}/lib/log-speech.mjs" 2>/dev/null || true
 }
 
 # Start the background timer loop
